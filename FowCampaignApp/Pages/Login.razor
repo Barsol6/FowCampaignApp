@@ -1,0 +1,46 @@
+﻿@page "/login"
+@using FowCampaignApp.Services.Auth
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthService AuthService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavManager
+
+<h3>Campaign Login</h3>
+
+<div class="card" style="width: 300px;">
+    <div class="card-body">
+        <div class="mb-3">
+            <label>Username</label>
+            <input @bind="username" class="form-control" />
+        </div>
+        <div class="mb-3">
+            <label>Password</label>
+            <input type="password" @bind="password" class="form-control" />
+        </div>
+        <button class="btn btn-primary" @onclick="HandleLogin">Login</button>
+        <p class="text-danger">@errorMessage</p>
+    </div>
+</div>
+
+@code {
+    private string username;
+    private string password;
+    private string errorMessage;
+
+    private async Task HandleLogin()
+    {
+        var player = await AuthService.LoginAsync(username, password);
+
+        if (player != null)
+        {
+            ((CustomAuthStateProvider)AuthStateProvider).NotifyUserLoggedIn(player);
+            
+            // 3. Redirect to the Map
+            NavManager.NavigateTo("/map");
+        }
+        else
+        {
+            errorMessage = "Invalid username or password.";
+        }
+    }
+}
