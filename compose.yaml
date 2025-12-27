@@ -1,0 +1,31 @@
+﻿services:
+  fowcampaignapi:
+    image: fowcampaignapi
+    build:
+      context: .
+      dockerfile: FowCampaignApi/Dockerfile
+
+  fowcampaignapi-1:
+    image: fowcampaignapi-1
+    build:
+      context: .
+      dockerfile: FowCampaignApi/Dockerfile
+
+  fowcampaignapi-2:
+    image: fowcampaignapi-2
+    build:
+      context: .
+      dockerfile: FowCampaignApi/Dockerfile
+
+  fowcampaignapi-3:
+    image: fowcampaignapi-3
+    build:
+      context: .
+      dockerfile: FowCampaignApi/Dockerfile
+
+  fowcampaignapi-4:
+    image: fowcampaignapi-4
+    build:
+      context: .
+      dockerfile: FowCampaignApi/Dockerfile
+

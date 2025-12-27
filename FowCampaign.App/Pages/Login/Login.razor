@@ -1,0 +1,98 @@
+﻿@using System.Net
+@using FowCampaign.App.DTO
+
+
+@page "/login"
+
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@inject User User
+
+
+<div class="container">
+    <div class="title">
+        FoW Campaign
+    </div>
+    <div class="loginBox items-center">
+
+        <div class="login">
+            <div class="data-box">
+                <input type="text" @bind="User.Username" onkeyup="@Enter" required="required"/>
+                <label> LOGIN </label>
+            </div>
+            <br/>
+            <div class="data-box">
+                <input class="bg-[]" type="password" @bind="User.Password" onkeyup="@Enter" required="required"/>
+                <label> PASSWORD </label>
+            </div>
+            <br/>
+            <div class="loginButton" @onclick="HandleUserLogin">
+                <div class="logButton">
+                    <div class="logButton-content">
+                        LOG IN
+                    </div>
+                </div>
+            </div>
+            <div class="loginButton"  @onclick="ShowSignUpPage">
+                <div class="logButton" >
+                    <div class="logButton-content">
+                        SIGN UP
+                    </div>
+                </div>
+            </div>
+         
+        </div>
+    </div>
+</div>
+
+
+
+@code {
+    
+
+    [Parameter]
+    public string UserName { get; set; }
+
+    private async Task Enter(KeyboardEventArgs e)
+    {
+        if (e.Code is "Enter" or "NumpadEnter" )
+        {
+            await HandleUserLogin();
+        }
+    }
+
+    private async Task HandleUserLogin()
+    {
+        if (User.Username != String.Empty && User.Password != String.Empty)
+        {
+            var response = await Http.PostAsJsonAsync("api/User/login", User);
+
+            UserName = User.Username;
+            
+            if (response.IsSuccessStatusCode)
+            {
+                NavigationManager.NavigateTo($"/menu/{UserName}");
+            }
+            else if(response.StatusCode == HttpStatusCode.NotFound)
+            {
+                ShowSignUpPage();
+            }
+            else if(response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                return;
+            }
+            
+        }
+    }
+
+    private async  Task ShowSignUpPage()
+    {
+        User.Password = String.Empty;
+        User.Username = String.Empty;
+        User.PasswordRepeat = String.Empty;
+        User.Role= string.Empty;
+        User.Color = string.Empty;
+        NavigationManager.NavigateTo("/register");
+    }
+
+}
