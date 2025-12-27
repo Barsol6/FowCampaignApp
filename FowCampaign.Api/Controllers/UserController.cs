@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 
 
-namespace Mixi.Api.Controllers;
+namespace FowCampaign.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
@@ -91,8 +91,14 @@ public class UserController : ControllerBase
     [HttpPost("logout")]
     public IActionResult Logout()
     {
-        
-        Response.Cookies.Delete("authToken");
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true, 
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTime.UtcNow.AddDays(-1) 
+        };
+        Response.Cookies.Append("authToken", "", cookieOptions);
         return Ok(new { message = "Logged out" });
     }
     

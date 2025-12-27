@@ -1,5 +1,7 @@
 ﻿@using System.Net
+@using System.Net.Http.Json
 @using FowCampaign.App.DTO
+@using Microsoft.AspNetCore.Components.Web
 
 
 @page "/login"
@@ -72,7 +74,7 @@
             
             if (response.IsSuccessStatusCode)
             {
-                NavigationManager.NavigateTo($"/home");
+                NavigationManager.NavigateTo($"/home", forceLoad: true);
             }
             else if(response.StatusCode == HttpStatusCode.NotFound)
             {

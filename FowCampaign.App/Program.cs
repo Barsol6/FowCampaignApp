@@ -3,7 +3,9 @@ using FowCampaign.App.DTO;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using FowCampaign.App.Handlers;
-
+using FowCampaign.App.Providers;
+using FowCampaign.App.Shared;
+using Microsoft.AspNetCore.Components.Authorization;
 
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -24,6 +26,9 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().Cre
 builder.Services.AddSingleton<User>();
 builder.Services.AddScoped<LoginDto>();
 builder.Services.AddScoped<RegisterDto>();
+builder.Services.AddScoped<UserSessionDto>();
+builder.Services.AddAuthorizationCore();
+builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthStateProvider>();
 
 
 
