@@ -1,5 +1,122 @@
-﻿@page "/register"
+﻿@using System.Net
+@using FowCampaign.App.DTO
+
+
+
+
+@page "/register"
+
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@inject RegisterDto User
+
+
+<div class="container">
+    <div class="signInPanel">
+        
+        <div class="title">
+            @_loginStatement
+        </div>
+
+        <div class="login">
+
+            <div class="data-box">
+                <input type="text" @bind="User.Username" @onkeydown="Enter" placeholder="NEW CODENAME" required />
+                <label> USERNAME </label>
+            </div>
+
+            <div class="data-box">
+                <input type="password" @bind="User.Password" @onkeydown="Enter" placeholder="******" required />
+                <label> PASSWORD </label>
+            </div>
+
+            <div class="data-box">
+                <input type="password" @bind="_passwordRepeat" @onkeydown="Enter" placeholder="******" required />
+                <label> REPEAT PASSWORD </label>
+            </div>
+
+            <div class="data-box">
+                <select @bind="User.Role">
+                    <option value="" disabled selected>Select Allegiance</option>
+                    <option value="Axis">Axis Powers</option>
+                    <option value="Ally">Allied Forces</option>
+                </select>
+                <label> FACTION </label>
+            </div>
+
+            <br/>
+
+            <div class="data-box">
+                <button class="logButton" @onclick="HandleUserSignUp">
+                    CONFIRM REGISTRATION
+                </button>
+            </div>
+            
+            <div class="data-box">
+                <button class="logButton" 
+                        style="background-color: var(--wood-light); font-size: 0.9rem;" 
+                        @onclick="Close">
+                    ABORT (BACK TO LOGIN)
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
 
 @code {
+    private string _loginStatement = "FILL FORM";
+    private string _passwordRepeat = String.Empty;
+
+
+    private async Task Enter(KeyboardEventArgs e)
+    {
+        if (e.Code is "Enter" or "NumpadEnter")
+        {
+            await HandleUserSignUp();
+        }
+    }
+
+    private async Task HandleUserSignUp()
+    {
+        Console.WriteLine("dupa");
+        if (!string.IsNullOrWhiteSpace(User.Username)&&!string.IsNullOrWhiteSpace(User.Password))
+        {
+            if (User.Password !=  _passwordRepeat)
+            {
+                _loginStatement = "Passwords do not match";
+                return;
+            }
+
+            var exists = await Http.PostAsJsonAsync("api/User/register", User);
+
+            if (exists.StatusCode == HttpStatusCode.Conflict)
+            {
+                _loginStatement = "USERNAME ALREADY USED";
+                StateHasChanged();
+            }
+            else if (exists.IsSuccessStatusCode)
+            {
+                _loginStatement = "SUCCES";
+                StateHasChanged();
+                await Task.Delay(1000);
+                User.Username = string.Empty;
+                User.Password = string.Empty;
+                _passwordRepeat = string.Empty;
+                NavigationManager.NavigateTo("/login");
+            }
+
+            StateHasChanged();
+        }
+    }
     
+
+    public void Close()
+    {
+        NavigationManager.NavigateTo("/login");
+        StateHasChanged();
+    }
+
+
 }
+

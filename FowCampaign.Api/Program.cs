@@ -1,6 +1,11 @@
+using System.Text;
+using FowCampaign.Api.Modules.Account;
 using FowCampaign.Api.Modules.Database;
+using FowCampaign.Api.Modules.Database.Repositories;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,16 +25,52 @@ builder.Services.AddDbContext<FowCampaignContext>(options =>
 });
 
 builder.Services.AddControllers();
+var allowedClient = builder.Configuration["AllowedClient"];
+
+if (string.IsNullOrEmpty(allowedClient))
+{
+    throw new Exception("AllowedClient not set in appsettings.json");
+}
 
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins(allowedClient)
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                context.Token = context.Request.Cookies["authToken"];
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+
+builder.Services.AddScoped<PasswordHash>();
+builder.Services.AddScoped<SignUp>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
 
 var app = builder.Build();
 
@@ -62,6 +103,8 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<FowCampaignContext>();
     db.Database.Migrate();
 }
+
+
 
 app.Run();
 

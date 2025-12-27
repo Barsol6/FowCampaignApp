@@ -3,42 +3,45 @@
 
 
 @page "/login"
-
+@page "/"
 @inject HttpClient Http
 @inject NavigationManager NavigationManager
-@inject User User
+@inject LoginDto User
 
 
 <div class="container">
-    <div class="title">
-        FoW Campaign
-    </div>
-    <div class="loginBox items-center">
+    <div class="signInPanel">
+        
+        <div class="title">
+            TOP SECRET 
+        </div>
 
         <div class="login">
+            
             <div class="data-box">
-                <input type="text" @bind="User.Username" onkeyup="@Enter" required="required"/>
-                <label> LOGIN </label>
+                <input type="text" @bind="User.Username" @onkeydown="Enter" placeholder="CODENAME" required />
+                <label> USERNAME </label>
             </div>
-            <br/>
+            
             <div class="data-box">
-                <input class="bg-[]" type="password" @bind="User.Password" onkeyup="@Enter" required="required"/>
+                <input type="password" @bind="User.Password" @onkeydown="Enter" placeholder="******" required />
                 <label> PASSWORD </label>
             </div>
+
             <br/>
-            <div class="loginButton" @onclick="HandleUserLogin">
-                <div class="logButton">
-                    <div class="logButton-content">
-                        LOG IN
-                    </div>
-                </div>
+
+            <div class="data-box">
+                <button class="logButton" @onclick="HandleUserLogin">
+                    IDENTIFY (LOG IN)
+                </button>
             </div>
-            <div class="loginButton"  @onclick="ShowSignUpPage">
-                <div class="logButton" >
-                    <div class="logButton-content">
-                        SIGN UP
-                    </div>
-                </div>
+
+            <div class="data-box">
+                <button class="logButton" 
+                        style="background-color: var(--wood-light); font-size: 0.9rem;" 
+                        @onclick="ShowSignUpPage">
+                    REQUEST CLEARANCE (SIGN UP)
+                </button>
             </div>
          
         </div>
@@ -66,12 +69,10 @@
         if (User.Username != String.Empty && User.Password != String.Empty)
         {
             var response = await Http.PostAsJsonAsync("api/User/login", User);
-
-            UserName = User.Username;
             
             if (response.IsSuccessStatusCode)
             {
-                NavigationManager.NavigateTo($"/menu/{UserName}");
+                NavigationManager.NavigateTo($"/home");
             }
             else if(response.StatusCode == HttpStatusCode.NotFound)
             {
@@ -87,12 +88,9 @@
 
     private async  Task ShowSignUpPage()
     {
-        User.Password = String.Empty;
-        User.Username = String.Empty;
-        User.PasswordRepeat = String.Empty;
-        User.Role= string.Empty;
-        User.Color = string.Empty;
         NavigationManager.NavigateTo("/register");
     }
+
+  
 
 }
