@@ -1,0 +1,37 @@
+﻿@page "/home"
+
+@layout HomeLayout
+
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+
+<div class="war-room-layout">
+    <div class="top-nav">
+        <div class="nav-brand">CAMPAIGN COMMAND</div>
+        <div>
+            <button class="logButton" style="padding: 5px 15px; font-size: 0.8rem;" @onclick="LogoutUser">
+                LEAVE ROOM
+            </button>
+        </div>
+    </div>
+
+    <div class="map-table-surface">
+        
+        <div class="campaign-map">
+            <h2 style="text-align:center; padding-top: 20%;">
+                [CLASSIFIED MAP DATA]
+            </h2>
+        </div>
+
+    </div>
+</div>
+
+@code {
+    private async Task LogoutUser()
+    {
+        await Http.PostAsync("api/User/logout", null);
+        
+        NavigationManager.NavigateTo("/login", forceLoad: true);
+    }
+}
+

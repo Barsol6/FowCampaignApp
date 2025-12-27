@@ -1,0 +1,6 @@
+@FowCampaignApi_HostAddress = http://localhost:5225
+
+GET {{FowCampaignApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

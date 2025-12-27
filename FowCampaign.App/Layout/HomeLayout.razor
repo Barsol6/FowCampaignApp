@@ -1,0 +1,27 @@
+﻿@using FowCampaign.App.DTO
+
+@inject HttpClient Http
+
+@inherits LayoutComponentBase
+
+<div class="page">
+    <main>
+    
+        @Body
+       
+    </main>
+</div>
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        try 
+        {
+            var userState = await Http.GetFromJsonAsync<User>("api/User/me");
+         
+        }
+        catch (HttpRequestException)
+        {
+           
+        }
+    }
+}
