@@ -1,4 +1,7 @@
-﻿@using FowCampaign.App.Layout
+﻿@using System.Net.Http.Json
+@using FowCampaign.App.DTO
+@using FowCampaign.App.Layout
+@using FowCampaign.App.Shared
 @using Microsoft.AspNetCore.Authorization
 
 @page "/home"
@@ -11,33 +14,98 @@
 @inject HttpClient Http
 @inject NavigationManager NavigationManager
 
-<div class="war-room-layout">
-    <div class="top-nav">
-        <div class="nav-brand">CAMPAIGN COMMAND</div>
-        <div>
-            <button class="logButton"   style="padding: 5px 15px; font-size: 0.8rem;" onclick="@LogOutUser">
-                LEAVE ROOM
-            </button>
+<PaperSheet @ref="_paper">
+    <div class="war-room-layout">
+        <div class="top-nav">
+            <div class="nav-brand">CAMPAIGN COMMAND</div>
+            <div style="display:flex; gap:10px;">
+                <span style="color:#aaa; padding: 5px;">
+                    OPERATOR: @(_username ?? "UNKNOWN")
+                </span>
+                <button class="logButton" onclick="@LogOutUser">LEAVE ROOM</button>
+            </div>
         </div>
-    </div>
 
-    <div class="map-table-surface">
-        
-        <div class="campaign-map">
-            <h2 style="text-align:center; padding-top: 20%;">
-                [CLASSIFIED MAP DATA]
+        <div class="map-table-surface">
+            
+            <h2 style="text-align:center; color: #fff; opacity: 0.8; font-family: 'Black Ops One'; letter-spacing: 2px;">
+                AVAILABLE DOSSIERS
             </h2>
+
+            <div class="desk-surface">
+
+                <div class="folder new-campaign-sheet" onclick="@CreateNewCampaign">
+                    <div style="font-size: 3rem; color: #555;">+</div>
+                    <div>NEW OPERATION</div>
+                </div>
+
+                @if (_campaigns == null)
+                {
+                    <div style="color:white;">Retrieving files from archives...</div>
+                }
+                else
+                {
+                    @foreach (var camp in _campaigns)
+                    {
+                        <div class="folder" @onclick="() => OpenCampaign(camp.Id)">
+                            <div class="folder-stamp">TOP SECRET</div>
+        
+                            <div style="font-weight:bold; font-size:1.1rem; margin-bottom:5px;">
+                                @camp.Name
+                            </div>
+        
+                            <div style="font-size: 0.9rem; background: rgba(0,0,0,0.1); padding: 2px 5px; margin: 5px 0; font-family: monospace;">
+                                CODE: @camp.JoinCode
+                            </div>
+
+                            <div style="font-size:0.7rem;">
+                                DATE: @camp.LastPlayed.ToShortDateString()
+                            </div>
+                        </div>
+                    }
+                }
+
+            </div>
+
         </div>
-
     </div>
-</div>
-
+</PaperSheet>
 @code {
+    private PaperSheet _paper;
+    private List<CampaignDto> _campaigns;
+    private string _username;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await Http.GetFromJsonAsync<UserSessionDto>("api/User/me");
+        _username = authState?.Username;
+
+        try
+        {
+            _campaigns = await Http.GetFromJsonAsync<List<CampaignDto>>("api/Campaign");
+        }
+        catch
+        {
+            _campaigns = new List<CampaignDto>();
+        }
+    }
+
+
     private async Task LogOutUser()
     {
-        Console.WriteLine("dupa");
         await Http.PostAsync("api/User/logout", null);
-        NavigationManager.NavigateTo("/login", forceLoad: true);
+        await _paper.TossAndNavigate("/login", forceLoad: true);
     }
+
+    private async void CreateNewCampaign()
+    {
+        await _paper.TossAndNavigate("/campaigncreator");
+    }
+
+    private void OpenCampaign()
+    {
+        
+    }
+
 }
 

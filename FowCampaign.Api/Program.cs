@@ -94,9 +94,10 @@ app.UseHttpsRedirection();
 
 app.UseCors("AllowClient");
 
+app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseAuthentication();
+
 
 app.MapControllers();
 

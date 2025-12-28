@@ -3,8 +3,8 @@ using System.Security.Claims;
 using System.Text;
 using FowCampaign.Api.DTO;
 using FowCampaign.Api.Modules.Account;
+using FowCampaign.Api.Modules.Database.Entities.User;
 using FowCampaign.Api.Modules.Database.Repositories;
-using FowCampaign.Api.Modules.User;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 

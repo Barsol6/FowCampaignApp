@@ -1,4 +1,5 @@
-﻿using FowCampaign.Api.Modules.Database.Repositories;
+﻿using FowCampaign.Api.Modules.Database.Entities.User;
+using FowCampaign.Api.Modules.Database.Repositories;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 namespace FowCampaign.Api.Modules.Account;
@@ -10,7 +11,7 @@ public class PasswordHash
     public bool LoggedIn { get; set; } = false;
     
     
-    private User.User _user = new();
+    private User _user = new();
 
     public PasswordHash(IUserRepository userRepository)
     {

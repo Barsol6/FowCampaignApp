@@ -1,4 +1,4 @@
-﻿namespace FowCampaign.Api.Modules.Map;
+﻿namespace FowCampaign.Api.Modules.Database.Entities.Map;
 
 public class Map
 {
