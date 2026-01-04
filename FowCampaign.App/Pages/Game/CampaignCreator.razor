@@ -1,0 +1,379 @@
+﻿@using System.Net.Http.Headers
+@using System.Security.Cryptography
+@using System.Text.Json
+@using FowCampaign.App.DTO
+@using FowCampaign.App.Layout
+@using FowCampaign.App.Shared
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components.WebAssembly.Http
+@using Microsoft.JSInterop
+
+@page "/campaigncreator"
+
+@attribute [Authorize]
+@layout HomeLayout
+
+@inject HttpClient Http
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JsRuntime
+
+<PaperSheet @ref="_paper">
+
+    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <button @onclick="GoBack"
+                style="background:none; border:none; cursor:pointer; font-weight:bold; font-family:'Courier New'; font-size:1.2rem; color:#8b0000;">
+            &lt; ABORT SETUP
+        </button>
+
+        <h2 style="font-family: 'Black Ops One'; margin: 0; color: #333;">
+            CAMPAIGN SETUP
+        </h2>
+
+        <div style="width: 150px;"></div>
+    </div>
+
+    <div class="paper-form" style="border: none; box-shadow: none; padding: 0;">
+        <div style="display: flex; gap: 20px; align-items: center; justify-content: center; margin-bottom: 20px;">
+            <input type="text" class="tactical-input" @bind="_model.Name" placeholder="Operation Codename"/>
+
+            <label class="logButton" style="padding: 10px 20px;">
+                @(_hasMap ? "CHANGE MAP" : "UPLOAD MAP")
+                <InputFile OnChange="HandleImageUpload" style="display: none;" accept="image/*"/>
+            </label>
+
+            <button class="logButton" @onclick="SaveCampaign" disabled="@(!IsReadyToSave)">
+                CONFIRM & DEPLOY
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div style="color:red; text-align:center; font-weight:bold;">@_errorMessage</div>
+        }
+    </div>
+
+    @if (_hasMap)
+    {
+        <div class="paper-form"
+             style="margin-bottom: 15px; border: 1px dashed #555; background-color: #fcf8e3; padding: 10px;">
+            <h4 style="margin-top:0;">UNIT CREATOR</h4>
+            <input type="text" class="tactical-input" @bind="_unitName" style="padding-bottom: 5px;"
+                   placeholder="Unit Name"/>
+            <div style="display:flex; gap: 20px; align-items: flex-start;">
+                <label class="logButton" style="font-size: 0.7rem; padding: 5px;">
+                    + NEW Unit
+                    <InputFile OnChange="@HandleIconUnitUpload" style="display: none;" accept="image/*"/>
+                </label>
+
+                @foreach (var def in _unitDefinitions)
+                {
+                    <div @onclick="() => _selectedDefinitionId = def.Id"
+                         style="cursor: pointer; padding: 5px; border: 2px solid @(_selectedDefinitionId == def.Id ? "#bd2424" : "transparent");">
+                        <img src="@def.ImageBase64" style="width: 32px; height: 32px; display: block; margin: 0 auto;"/>
+                        <input @bind="def.Name"
+                               style="width: 80px; border: none; background: transparent; text-align: center; font-size: 0.8rem;"/>
+                    </div>
+                }
+            </div>
+        </div>
+        <div style="display: flex; gap: 20px; align-items: flex-start; margin-top: 20px;">
+
+            <div style="flex: 2;">
+                <div
+                    style="background: #ddd; padding: 5px; margin-bottom: 5px; display: flex; gap: 10px; align-items: center;">
+                    <button style="@(_currentTool == "PAINT" ? "background:#333; color:white;" : "")"
+                            @onclick='() => _currentTool = "PAINT"'>
+                        PAINT
+                    </button>
+                    <button style="@(_currentTool == "DEPLOY" ? "background:#333; color:white;" : "")"
+                            @onclick='() => _currentTool = "DEPLOY"'>
+                        DEPLOY
+                    </button>
+
+                    @if (_currentTool == "DEPLOY")
+                    {
+                        <span style="font-size:0.8rem;">Select Unit Type above ↑</span>
+                        <button
+                            @onclick="() => { if(_deployedUnits.Any()) _deployedUnits.RemoveAt(_deployedUnits.Count - 1); }"
+                            style="margin-left:auto; color:red;">
+                            UNDO
+                        </button>
+                    }
+                </div>
+                <div class="canvas-wrapper" style="position: relative; width: fit-content; margin: 0 auto; display: block; " @onmousemove="HandleWrapperMouseMove"
+                     @onmouseup="HandleWrapperMouseUp">
+                    <canvas id="mapCanvas" @onclick="HandleCanvasClick" style="display: block; "></canvas>
+                    @foreach (var unit in _deployedUnits)
+                    {
+                        var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
+                        var def = _unitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
+                        var isBeingDragged = (_draggingUnit == unit);
+
+                        if (def != null)
+                        {
+                            <div class="map-unit @(isBeingDragged ? "is-dragging" : "")"
+                                 style="position: absolute;
+                                     left: @(unit.X)px;
+                                 top: @(unit.Y)px;
+                                 transform: translate(-50%, -50%);
+                                 border: 2px solid @factionColor;
+                                 box-shadow: 0 0 5px @factionColor;
+                                 pointer-events: @(isBeingDragged ? "none" : "auto");"
+                                 @onmousedown="() => StartDrag(unit)"
+                                 @onmousedown:stopPropagation="true"
+                                 @oncontextmenu="() => DeleteUnit(unit)"
+                                 @oncontextmenu:preventDefault="true">
+
+                                <img src="@def.ImageBase64" style="width: 100%; height: 100%; object-fit: contain;"/>
+                            </div>
+                        }
+                    }
+                </div>
+                <div style="text-align: center; margin-top: 5px;">
+                    <button @onclick="ResetMap"
+                            style="color: #d32f2f; background: none; border: none; font-weight: bold; cursor: pointer;">
+                        [RESET MAP]
+                    </button>
+                </div>
+            </div>
+
+            <div class="paper-form" style="flex: 1; min-width: 300px;">
+                <h4 style="border-bottom: 2px solid #333; padding-bottom: 5px;">FACTIONS</h4>
+
+                @foreach (var faction in _model.Factions)
+                {
+                    <div style="background: rgba(255,255,255,0.5); padding: 10px; margin-bottom: 10px; border: 1px solid #999;">
+
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom: 5px;">
+                            <div
+                                style="width:25px; height:25px; background:@faction.Color; border:2px solid @(_selectedFaction == faction ? "#000" : "#999"); cursor: pointer;"
+                                @onclick="() => _selectedFaction = faction">
+                            </div>
+
+                            <input @bind="faction.Name"
+                                   style="border:none; background:transparent; font-weight:bold; font-size: 1.1rem; width: 100%;"/>
+                        </div>
+
+                        <label style="font-size: 0.8rem; display: block; cursor: pointer; margin-top: 5px;">
+                            <input type="radio" name="myFaction"
+                                   checked="@(_myFaction == faction)"
+                                   @onchange="() => _myFaction = faction"/>
+                            COMMAND THIS FACTION
+                        </label>
+                        <label style="font-size: 0.8rem; display: block; cursor: pointer; margin-top: 5px;">
+                            <input type="radio" name="startingFaction"
+                                   checked="@(_startingFaction == faction)"
+                                   @onchange="() => _startingFaction = faction"/>
+                            STARTING FACTION
+                        </label>
+                    </div>
+                }
+
+            </div>
+        </div>
+    }
+</PaperSheet>
+
+
+@code {
+    private PaperSheet _paper;
+    private CreateCampaignDto _model = new();
+    private FactionDto _selectedFaction;
+    private FactionDto _myFaction;
+    private FactionDto _startingFaction;
+    private List<ZoneSeedDto> _recordedZones = new();
+    private List<UnitDefinitionDto> _unitDefinitions = new();
+    private List<UnitDto> _deployedUnits = new();
+    private UnitDto _draggingUnit = null;
+
+    private string _unitName = string.Empty;
+    private string _currentTool = "PAINT";
+    private string _selectedDefinitionId;
+    private string _imageDataUrl;
+    private bool _hasMap = false;
+    private byte[] _fileBytes;
+    private string _fileContentType;
+    private string _errorMessage;
+    private bool _shouldRenderMap = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldRenderMap)
+        {
+            _shouldRenderMap = false;
+            await JsRuntime.InvokeVoidAsync("mapTools.initMap", "mapCanvas", _imageDataUrl);
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        AddAxis();
+        AddAllies();
+    }
+
+    private void AddAxis()
+    {
+        var f = new FactionDto { Name = "Axis", Color = "#bd2424" };
+        _model.Factions.Add(f);
+        _selectedFaction = f;
+    }
+
+    private void AddAllies()
+    {
+        var f = new FactionDto { Name = "Allies", Color = "#2980b9" };
+        _model.Factions.Add(f);
+    }
+
+    private bool IsReadyToSave => !string.IsNullOrEmpty(_model.Name) && _hasMap && _myFaction != null;
+
+    private async Task HandleImageUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        _fileContentType = file.ContentType;
+        var resizedFile = await file.RequestImageFileAsync("image/png", 1280, 720);
+
+        _fileBytes = new byte[resizedFile.Size];
+        await resizedFile.OpenReadStream(maxAllowedSize: 1024 * 1024 * 10).ReadAsync(_fileBytes);
+
+        var base64 = Convert.ToBase64String(_fileBytes);
+        _imageDataUrl = $"data:image/png;base64,{base64}";
+        _hasMap = true;
+
+        _shouldRenderMap = true;
+    }
+
+    private async Task HandleCanvasClick(MouseEventArgs e)
+    {
+        if (_selectedFaction == null) return;
+
+        if (_currentTool == "PAINT")
+        {
+            await JsRuntime.InvokeVoidAsync("mapTools.floodFill", (int)e.OffsetX, (int)e.OffsetY, _selectedFaction.Color);
+            _recordedZones.Add(new ZoneSeedDto { X = e.OffsetX, Y = e.OffsetY, FactionName = _selectedFaction.Name });
+        }
+        else if (_currentTool == "DEPLOY")
+        {
+            if (string.IsNullOrEmpty(_selectedDefinitionId) && _draggingUnit != null) return;
+
+            _deployedUnits.Add(new UnitDto
+            {
+                DefinitionId = _selectedDefinitionId,
+                FactionName = _selectedFaction.Name,
+                X = e.OffsetX,
+                Y = e.OffsetY
+            });
+        }
+    }
+
+    private async Task ResetMap()
+    {
+        await JsRuntime.InvokeVoidAsync("mapTools.resetMap");
+    }
+
+    private async Task SaveCampaign()
+    {
+        if (_myFaction == null)
+        {
+            _errorMessage = "You must select a faction to command!";
+            return;
+        }
+
+        var gameState = new GameStateDto
+        {
+            Factions = _model.Factions,
+            Zones = _recordedZones,
+            Units = _deployedUnits,
+            UnitDefinitions = _unitDefinitions,
+            CurrentTurnFaction = _startingFaction.Name,
+            TurnNumber = 1
+        };
+
+        var jsonString = JsonSerializer.Serialize(gameState);
+
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent(_model.Name), "Name");
+        content.Add(new StringContent(jsonString), "GameStateJson");
+        content.Add(new StringContent(_myFaction.Name), "CreatorFactionName");
+
+        var imgContent = new ByteArrayContent(_fileBytes);
+        imgContent.Headers.ContentType = new MediaTypeHeaderValue(_fileContentType);
+        content.Add(imgContent, "MapImage", "map.png");
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "api/Campaign");
+        request.Content = content;
+        request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+        var response = await Http.SendAsync(request);
+
+        if (response.IsSuccessStatusCode)
+        {
+            await _paper.TossAndNavigate("/home", forceLoad: true);
+        }
+        else
+        {
+            _errorMessage = "Deployment Failed. Check server logs.";
+            Console.WriteLine(response);
+        }
+    }
+
+    private async Task HandleIconUnitUpload(InputFileChangeEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_unitName))
+        {
+            return;
+        }
+        var file = e.File;
+        var resized = await file.RequestImageFileAsync("image/png", 64, 64);
+        var buffer = new byte[resized.Size];
+        await resized.OpenReadStream().ReadAsync(buffer);
+
+        var base64 = Convert.ToBase64String(buffer);
+
+        var newDef = new UnitDefinitionDto
+        {
+            Name = _unitName,
+            ImageBase64 = $"data:image/png;base64,{base64}"
+        };
+
+        _unitDefinitions.Add(newDef);
+        _selectedDefinitionId = newDef.Id;
+        _unitName = string.Empty;
+    }
+
+    private void StartDrag(UnitDto unit)
+    {
+        if (_currentTool == "DEPLOY")
+        {
+            _draggingUnit = unit;
+        }
+    }
+
+    private void HandleWrapperMouseMove(MouseEventArgs e)
+    {
+        if (_draggingUnit != null)
+        {
+            _draggingUnit.X = e.OffsetX;
+            _draggingUnit.Y = e.OffsetY;
+        }
+    }
+
+    private void HandleWrapperMouseUp(MouseEventArgs e)
+    {
+        _draggingUnit = null;
+    }
+
+    private void DeleteUnit(UnitDto unit)
+    {
+        if (_currentTool == "DEPLOY")
+        {
+            _deployedUnits.Remove(unit);
+        }
+    }
+
+    private async void GoBack()
+    {
+        await _paper.TossAndNavigate("/home", forceLoad: true);
+    }
+
+}

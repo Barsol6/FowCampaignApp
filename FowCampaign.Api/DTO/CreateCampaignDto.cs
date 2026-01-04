@@ -9,3 +9,4 @@ public class CreateCampaignDto
         public string CreatorFactionName { get; set; }
  
 }
+

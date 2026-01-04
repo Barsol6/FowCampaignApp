@@ -1,4 +1,3 @@
-using FowCampaign.App;
 using FowCampaign.App.DTO;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
