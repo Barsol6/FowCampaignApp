@@ -1,0 +1,30 @@
+﻿@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+
+<div id="@_elementId" class="paper-sheet-container" style="opacity: 0;">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter]
+    public RenderFragment ChildContent { get; set; }
+    
+    private string _elementId = "paper-" + Guid.NewGuid().ToString("N");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("paperTransition.dropIn", _elementId);
+        }
+    }
+
+    public async Task TossAndNavigate(string url, bool forceLoad = false)
+    {
+        await JSRuntime.InvokeVoidAsync("paperTransition.tossOut", _elementId);
+        
+        NavigationManager.NavigateTo(url, forceLoad);
+    }
+
+
+}

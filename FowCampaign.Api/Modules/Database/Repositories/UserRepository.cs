@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using FowCampaign.Api.Modules.Database.Entities.User;
+using Microsoft.EntityFrameworkCore;
 
 namespace FowCampaign.Api.Modules.Database.Repositories;
 
@@ -11,7 +12,7 @@ public class UserRepository:IUserRepository
         _dbContext = dbContext;
     }
 
-    public async Task<User.User> AddUserAsync(User.User user)
+    public async Task<User> AddUserAsync(User user)
     {
         _dbContext.Users.Add(user);
         await _dbContext.SaveChangesAsync();
@@ -24,13 +25,13 @@ public class UserRepository:IUserRepository
             .Users.Any(x => x.Username.ToLower() == username);
         return exists;
     }
-    public async Task<User.User> GetUserAsync(int id)
+    public async Task<User> GetUserAsync(int id)
     {
         var user = await _dbContext.Users.FindAsync(id);
         return user;
     } 
     
-    public async Task<User.User> GetUserAsync(string username)
+    public async Task<User> GetUserAsync(string username)
     {
         var user = await _dbContext
             .Users.Where(u => u.Username == username)

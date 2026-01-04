@@ -1,6 +1,6 @@
-﻿using FowCampaign.Api.Modules.Map;
+﻿using FowCampaign.Api.Modules.Database.Entities.Map;
 
-namespace FowCampaign.Api.Modules.User;
+namespace FowCampaign.Api.Modules.Database.Entities.User;
 
 public class User
 {
@@ -13,4 +13,6 @@ public class User
     public string Role { get; set; } = "Player";
     
     public virtual ICollection<Territory> Territories { get; set; } = new List<Territory>();
+    
+    public virtual ICollection<CampaignPlayer> CampaignsPlayed { get; set; } = new List<CampaignPlayer>();
 }

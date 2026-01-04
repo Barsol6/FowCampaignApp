@@ -3,6 +3,7 @@ using System;
 using FowCampaign.Api.Modules.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FowCampaign.Api.Migrations
 {
     [DbContext(typeof(FowCampaignContext))]
-    partial class FowCampaignContextModelSnapshot : ModelSnapshot
+    [Migration("20251228154105_AddCampaigns")]
+    partial class AddCampaigns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.1");
@@ -23,27 +26,23 @@ namespace FowCampaign.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTime>("LastPlayed")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("GameStateJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("JoinCode")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("MapFileName")
-                        .IsRequired()
+                    b.Property<string>("MapDataJson")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("OwnerId")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("OwnerUsername")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
@@ -99,37 +98,6 @@ namespace FowCampaign.Api.Migrations
                     b.ToTable("Territories");
                 });
 
-            modelBuilder.Entity("FowCampaign.Api.Modules.Database.Entities.User.CampaignPlayer", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CampaignId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("factionName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("isAlive")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("isTurn")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CampaignId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("CampaignPlayer");
-                });
-
             modelBuilder.Entity("FowCampaign.Api.Modules.Database.Entities.User.User", b =>
                 {
                     b.Property<int>("Id")
@@ -179,30 +147,6 @@ namespace FowCampaign.Api.Migrations
                     b.Navigation("Owner");
                 });
 
-            modelBuilder.Entity("FowCampaign.Api.Modules.Database.Entities.User.CampaignPlayer", b =>
-                {
-                    b.HasOne("FowCampaign.Api.Modules.Database.Entities.Campaign.Campaign", "Campaign")
-                        .WithMany("Players")
-                        .HasForeignKey("CampaignId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("FowCampaign.Api.Modules.Database.Entities.User.User", "User")
-                        .WithMany("CampaignsPlayed")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Campaign");
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("FowCampaign.Api.Modules.Database.Entities.Campaign.Campaign", b =>
-                {
-                    b.Navigation("Players");
-                });
-
             modelBuilder.Entity("FowCampaign.Api.Modules.Database.Entities.Map.Map", b =>
                 {
                     b.Navigation("Territories");
@@ -210,8 +154,6 @@ namespace FowCampaign.Api.Migrations
 
             modelBuilder.Entity("FowCampaign.Api.Modules.Database.Entities.User.User", b =>
                 {
-                    b.Navigation("CampaignsPlayed");
-
                     b.Navigation("Territories");
                 });
 #pragma warning restore 612, 618

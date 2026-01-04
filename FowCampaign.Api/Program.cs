@@ -34,7 +34,7 @@ if (string.IsNullOrEmpty(allowedClient))
 
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    options.AddPolicy("AllowClient",policy =>
     {
         policy.WithOrigins(allowedClient)
             .AllowAnyHeader()
@@ -92,9 +92,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseCors();
+app.UseCors("AllowClient");
 
+app.UseAuthentication();
 app.UseAuthorization();
+
+
 
 app.MapControllers();
 
