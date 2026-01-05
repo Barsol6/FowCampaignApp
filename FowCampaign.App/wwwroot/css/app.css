@@ -547,4 +547,13 @@ canvas {
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     font-family: 'Courier New';
 }
+.canvas-stack-item {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none; 
+}
+.interactive-layer {
+    pointer-events: auto; 
+}
 

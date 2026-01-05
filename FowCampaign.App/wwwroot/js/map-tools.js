@@ -22,10 +22,17 @@
         img.src = imageSrc;
     },
     
-    floodFill: (startX, startY, fillColorHex) => {
+    floodFill: (visualX, visualY, fillColorHex) => {
         const ctx = window.mapTools.ctx;
         const canvas = window.mapTools.canvas;
         if (!ctx) return;
+        
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        
+        const startX = Math.floor(visualX * scaleX);
+        const startY = Math.floor(visualY * scaleY);
         
         const r = parseInt(fillColorHex.slice(1, 3), 16);
         const g = parseInt(fillColorHex.slice(3, 5), 16);
@@ -76,6 +83,8 @@
         }
         
         ctx.putImageData(imageData, 0, 0);
+        
+        return  {x: startX, y: startY}
         
     },
     
