@@ -250,8 +250,18 @@
 
         if (_currentTool == "PAINT")
         {
-            await JsRuntime.InvokeVoidAsync("mapTools.floodFill", (int)e.OffsetX, (int)e.OffsetY, _selectedFaction.Color);
-            _recordedZones.Add(new ZoneSeedDto { X = e.OffsetX, Y = e.OffsetY, FactionName = _selectedFaction.Name });
+            var realCoords = await JsRuntime.InvokeAsync<PaintCoord>("mapTools.floodFill", e.OffsetX, e.OffsetY, _selectedFaction.Color);
+            if (realCoords != null)
+            {
+                _recordedZones.Add(new ZoneSeedDto
+                {
+                    X = e.OffsetX,
+                    Y = e.OffsetY,
+                    FactionName = _selectedFaction.Name
+                });
+                
+            }
+            
         }
         else if (_currentTool == "DEPLOY")
         {
@@ -374,6 +384,12 @@
     private async void GoBack()
     {
         await _paper.TossAndNavigate("/home", forceLoad: true);
+    }
+
+    public class PaintCoord
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 
 }
