@@ -157,13 +157,13 @@
                         </div>
 
                         <label style="font-size: 0.8rem; display: block; cursor: pointer; margin-top: 5px;">
-                            <input type="radio" name="myFaction"
+                            <input type="checkbox" name="myFaction"
                                    checked="@(_myFaction == faction)"
                                    @onchange="() => _myFaction = faction"/>
                             COMMAND THIS FACTION
                         </label>
                         <label style="font-size: 0.8rem; display: block; cursor: pointer; margin-top: 5px;">
-                            <input type="radio" name="startingFaction"
+                            <input type="checkbox" name="startingFaction"
                                    checked="@(_startingFaction == faction)"
                                    @onchange="() => _startingFaction = faction"/>
                             STARTING FACTION
@@ -172,6 +172,12 @@
                 }
 
             </div>
+        </div>
+    }
+    @if (_isScanning)
+    {
+        <div style="position:fixed; top:20px; right:20px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; z-index:9999;">
+            Running Intel Scan ...
         </div>
     }
 </PaperSheet>
@@ -187,15 +193,19 @@
     private List<UnitDefinitionDto> _unitDefinitions = new();
     private List<UnitDto> _deployedUnits = new();
     private UnitDto _draggingUnit = null;
+    private List<DetectedLabelDto> _ocrLabels = new();
 
     private string _unitName = string.Empty;
     private string _currentTool = "PAINT";
     private string _selectedDefinitionId;
     private string _imageDataUrl;
     private bool _hasMap = false;
+    private bool _isScanning = false;
     private byte[] _fileBytes;
     private string _fileContentType;
     private string _errorMessage;
+    private string _regionName = String.Empty;
+ 
     private bool _shouldRenderMap = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -232,14 +242,35 @@
     {
         var file = e.File;
         _fileContentType = file.ContentType;
-        var resizedFile = await file.RequestImageFileAsync("image/png", 1280, 720);
+        long maxFileSize = 1024 * 1024 * 20; 
 
-        _fileBytes = new byte[resizedFile.Size];
-        await resizedFile.OpenReadStream(maxAllowedSize: 1024 * 1024 * 10).ReadAsync(_fileBytes);
+        try 
+        {
+            _fileBytes = new byte[file.Size];
+            await file.OpenReadStream(maxAllowedSize: maxFileSize).ReadAsync(_fileBytes);
 
-        var base64 = Convert.ToBase64String(_fileBytes);
-        _imageDataUrl = $"data:image/png;base64,{base64}";
-        _hasMap = true;
+            var base64 = Convert.ToBase64String(_fileBytes);
+            _imageDataUrl = $"data:{_fileContentType};base64,{base64}";
+        
+            _hasMap = true;
+            _shouldRenderMap = true;
+            
+            _isScanning = true;
+            StateHasChanged();
+            
+            _ocrLabels = await JsRuntime.InvokeAsync<List<DetectedLabelDto>>("mapTools.scanMapText", _imageDataUrl);
+            Console.WriteLine($"OCR Success: Found {_ocrLabels.Count} regions.");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Upload Error: {ex.Message}";
+            Console.WriteLine(ex);
+        }
+        finally
+        {
+            _isScanning = false;
+            StateHasChanged();
+        }
 
         _shouldRenderMap = true;
     }
@@ -250,14 +281,32 @@
 
         if (_currentTool == "PAINT")
         {
-            var realCoords = await JsRuntime.InvokeAsync<PaintCoord>("mapTools.floodFill", e.OffsetX, e.OffsetY, _selectedFaction.Color);
+            var realCoords = await JsRuntime.InvokeAsync<PaintCoord>(
+                "mapTools.floodFill", 
+                e.OffsetX,
+                e.OffsetY,
+                _selectedFaction.Color
+                );
             if (realCoords != null)
             {
+                var closestLabel = _ocrLabels
+                    .Select(l => new
+                    {
+                        Label = l,
+                        Distance = Math.Sqrt(Math.Pow(l.X - realCoords.X, 2) + Math.Pow(l.Y - realCoords.Y, 2))
+                    })
+                    .Where(x => x.Distance < 200)
+                    .OrderBy(x => x.Distance)
+                    .FirstOrDefault();
+
+                _regionName = closestLabel?.Label.Text ?? "";
+                
                 _recordedZones.Add(new ZoneSeedDto
                 {
-                    X = e.OffsetX,
-                    Y = e.OffsetY,
-                    FactionName = _selectedFaction.Name
+                    X = realCoords.X,
+                    Y = realCoords.Y,
+                    FactionName = _selectedFaction.Name,
+                    Name = _regionName
                 });
                 
             }
