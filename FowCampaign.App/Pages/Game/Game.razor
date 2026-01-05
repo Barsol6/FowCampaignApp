@@ -47,44 +47,47 @@
             </div>
         }
 
-        <div class="game-layout">
-            
-            <div style="position: relative;">
-                <div class="turn-header">
+        <div class="game-container">
+
+            <div class="map-panel">
+
+                <div class="map-sticky-header">
                     <span>OP: @_gameData.Name</span>
                     <span>Playing As: <span style="color:yellow;">@_gameData.MyFactionName</span></span>
                 </div>
 
-                <div class="canvas-wrapper" 
-                     style=" position: relative; width: fit-content; margin: 0 auto; display: block;"
-                     @onmousemove="HandleWrapperMouseMove" 
+                <div class="canvas-container"
+                     @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
-                    
-                    <canvas id="gameCanvas" style="display: block; cursor: crosshair;"></canvas>
+
+                    <canvas id="gameCanvas" class="game-canvas"></canvas>
 
                     @if (_state != null)
                     {
                         @foreach (var unit in _state.Units)
                         {
                             var def = _state.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
-                            var factionColor = GetFactionColor(unit.FactionName);
-                            
+
+                            // Dynamic C# Logic for classes
                             var isMyUnit = unit.FactionName == _gameData.MyFactionName;
                             var isMyTurn = _state.CurrentTurnFaction == _gameData.MyFactionName;
                             var canDrag = isMyUnit && isMyTurn;
-                            
-                            var stateClass = canDrag ? "" : "unit-locked"; 
-                            
+
+                            var dragClass = canDrag ? "unit-draggable" : "unit-locked";
                             var pointerClass = (_draggingUnit != null) ? "pointer-events-none" : "";
+
+                            // Dynamic Styles (Must stay inline)
+                            var factionColor = GetFactionColor(unit.FactionName);
+                            var positionStyle = $"left: {unit.X}px; top: {unit.Y}px; border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";
 
                             if (def != null)
                             {
-                                <div class="map-unit @stateClass @pointerClass"
-                                     style="left: @(unit.X)px; top: @(unit.Y)px; border: 2px solid @factionColor; box-shadow: 0 0 5px @factionColor;"
+                                <div class="map-unit @dragClass @pointerClass"
+                                     style="@positionStyle"
                                      @onmousedown="() => StartDrag(unit)"
                                      @onmousedown:stopPropagation="true">
-                                     
-                                    <img src="@def.ImageBase64" style="width:100%; height:100%; object-fit:contain;" title="@def.Name" />
+
+                                    <img src="@def.ImageBase64" style="width:100%; height:100%; object-fit:contain;" title="@def.Name"/>
                                 </div>
                             }
                         }
@@ -93,39 +96,69 @@
             </div>
 
             <div class="intel-sidebar">
-                <h4 style="margin-top:0; border-bottom: 2px solid #333;">ORDERS</h4>
-                
-                <p><strong>Commanding:</strong> @_gameData?.MyFactionName</p>
-                
-                @if (_state?.CurrentTurnFaction == _gameData?.MyFactionName)
-                {
-                    <div class="status-panel-active">
-                        <strong>STATUS:</strong> Awaiting Orders. <br/>
-                        Move units and confirm.
-                    </div>
-                    
-                    <button class="btn-turn btn-green" @onclick="SubmitTurn">
-                        ✔ END TURN
-                    </button>
-                }
-                else
-                {
-                    <div class="status-panel-waiting">
-                        <strong>STATUS:</strong> Enemy Moving. <br/>
-                        Wait for @_state?.CurrentTurnFaction to finish.
-                    </div>
-                    
-                    <button class="btn-turn btn-grey" disabled>
-                        WAITING...
-                    </button>
-                }
 
-                <hr style="border-top:1px dashed #666;" />
-                <button class="btn-leave" @onclick='() => NavigationManager.NavigateTo("/home")'>
-                    LEAVE WAR ROOM
-                </button>
+                <div class="sidebar-section">
+                    <h4 class="section-header">COMMAND</h4>
+
+                    @if (_state?.CurrentTurnFaction == _gameData?.MyFactionName)
+                    {
+                        <div class="status-box status-active">
+                            <strong>STATUS:</strong> Awaiting Orders
+                        </div>
+                        <button class="btn-full btn-confirm" @onclick="SubmitTurn">
+                            ✔ CONFIRM MOVES
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="status-box status-waiting">
+                            <strong>STATUS:</strong> Enemy Acting
+                        </div>
+                        <button class="btn-full btn-wait" disabled>
+                            WAITING...
+                        </button>
+                    }
+                </div>
+
+                <div class="intel-table-container">
+                    <h4 class="intel-header">TERRITORY CONTROL</h4>
+
+                    <table class="intel-table">
+                        <thead>
+                        <tr>
+                            <td>REGION</td>
+                            <td style="text-align: right;">OWNER</td>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @if (_state != null && _state.Zones != null)
+                        {
+                            @foreach (var zone in _state.Zones.OrderBy(z => z.Name))
+                            {
+                                <tr class="intel-row">
+                                    <td style="font-weight: bold; color: #333;">
+                                        @(string.IsNullOrWhiteSpace(zone.Name) ? "Unknown Sector" : zone.Name)
+                                    </td>
+                                    <td style="text-align: right;">
+                                        <span class="faction-badge"
+                                              style="background-color: @GetFactionColor(zone.FactionName);">
+                                            @zone.FactionName.ToUpper()
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="sidebar-section">
+                    <button class="btn-full btn-abort" @onclick='() => NavigationManager.NavigateTo("/home")'>
+                        LEAVE WAR ROOM
+                    </button>
+                </div>
+
             </div>
-
         </div>
     }
 </PaperSheet>
@@ -188,7 +221,7 @@
                     foreach (var zone in _state.Zones)
                     {
                         var f = _state.Factions.FirstOrDefault(fn => fn.Name == zone.FactionName);
-                        if(f != null) await JS.InvokeVoidAsync("mapTools.floodFill", (int)zone.X, (int)zone.Y, f.Color);
+                        if(f != null) await JS.InvokeVoidAsync("mapTools.floodFillRaw", (int)zone.X, (int)zone.Y, f.Color);
                     }
                 }
             }
@@ -227,17 +260,5 @@
             NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
         }
     }
-
-    public class GameStateDto
-    {
-        public List<FactionDto> Factions { get; set; } = new();
-        public List<ZoneSeedDto> Zones { get; set; } = new();
-        public List<UnitDto> Units { get; set; } = new();
-        public List<UnitDefinitionDto> UnitDefinitions { get; set; } = new();
-        public string CurrentTurnFaction { get; set; } 
-        public int TurnNumber { get; set; }
-    }
-    public class ZoneSeedDto { public double X { get; set; } public double Y { get; set; } public string FactionName { get; set; } }
-    public class UnitDto { public string DefinitionId { get; set; } public string FactionName { get; set; } public double X { get; set; } public double Y { get; set; } }
-    public class UnitDefinitionDto { public string Id { get; set; } public string Name { get; set; } public string ImageBase64 { get; set; } }
+    
 }}

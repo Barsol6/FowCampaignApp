@@ -557,3 +557,170 @@ canvas {
     pointer-events: auto; 
 }
 
+.game-container {
+    display: flex;
+    height: calc(100% - 60px);
+    gap: 0;
+    border-top: 2px solid #333;
+}
+
+.map-panel {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    background-color: #222;
+    border-right: 2px solid #333;
+}
+
+.map-sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    width: 100%;
+    border-bottom: 2px solid #333;
+    background-color: rgba(0, 0, 0, 0.8); 
+    color: white;
+    padding: 5px 10px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.canvas-container {
+    position: relative;
+    width: fit-content;
+    margin: 0 auto;
+    display: block;
+}
+
+.game-canvas {
+    display: block;
+    cursor: crosshair;
+}
+
+.map-unit {
+    position: absolute;
+    transform: translate(-50%, -50%); 
+}
+
+.unit-draggable {
+    cursor: grab;
+}
+
+.unit-locked {
+    cursor: not-allowed;
+    opacity: 0.9;
+}
+
+.intel-sidebar {
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    background-color: #f0e6d2;
+    color: #333;
+}
+
+.sidebar-section {
+    padding: 15px;
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.section-header {
+    margin: 0 0 10px 0;
+    font-family: 'Black Ops One', cursive;
+    letter-spacing: 1px;
+}
+
+.status-box {
+    padding: 10px;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+    border-radius: 4px;
+}
+
+.status-active {
+    background-color: #e8f5e9;
+    border: 1px solid #2ecc71;
+    color: #27ae60;
+}
+
+.status-waiting {
+    background-color: #fff3e0;
+    border: 1px solid #f39c12;
+    color: #d35400;
+}
+
+.intel-table-container {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    border-top: 2px solid #8b7d6b;
+    border-bottom: 2px solid #8b7d6b;
+}
+
+.intel-header {
+    margin: 0;
+    padding: 10px 15px;
+    background-color: #333;
+    color: #fff;
+    font-family: 'Black Ops One', cursive;
+    font-size: 1rem;
+}
+
+.intel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+}
+
+.intel-table thead {
+    background-color: #ccc;
+    font-weight: bold;
+    position: sticky;
+    top: 0;
+}
+
+.intel-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #dcdcdc;
+}
+
+.intel-row {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.faction-badge {
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: bold;
+}
+
+.btn-full {
+    width: 100%;
+    border: none;
+    padding: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.btn-confirm {
+    background-color: #2ecc71;
+    color: white;
+}
+
+.btn-wait {
+    background-color: #95a5a6;
+    color: #eee;
+    cursor: default;
+}
+
+.btn-abort {
+    background-color: #8b0000;
+    color: white;
+    font-size: 0.8rem;
+}
+
