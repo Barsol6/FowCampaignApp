@@ -6,10 +6,9 @@
 </div>
 
 @code {
-    [Parameter]
-    public RenderFragment ChildContent { get; set; }
-    
-    private string _elementId = "paper-" + Guid.NewGuid().ToString("N");
+    [Parameter] public RenderFragment ChildContent { get; set; }
+
+    private readonly string _elementId = "paper-" + Guid.NewGuid().ToString("N");
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -22,7 +21,7 @@
     public async Task TossAndNavigate(string url, bool forceLoad = false)
     {
         await JSRuntime.InvokeVoidAsync("paperTransition.tossOut", _elementId);
-        
+
         NavigationManager.NavigateTo(url, forceLoad);
     }
 

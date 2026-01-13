@@ -27,14 +27,11 @@ builder.Services.AddDbContext<FowCampaignContext>(options =>
 builder.Services.AddControllers();
 var allowedClient = builder.Configuration["AllowedClient"];
 
-if (string.IsNullOrEmpty(allowedClient))
-{
-    throw new Exception("AllowedClient not set in appsettings.json");
-}
+if (string.IsNullOrEmpty(allowedClient)) throw new Exception("AllowedClient not set in appsettings.json");
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowClient",policy =>
+    options.AddPolicy("AllowClient", policy =>
     {
         policy.WithOrigins(allowedClient)
             .AllowAnyHeader()
@@ -81,7 +78,7 @@ if (!app.Environment.IsDevelopment())
 }
 else
 {
-    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    app.UseExceptionHandler("/Error", true);
 }
 
 if (app.Environment.IsDevelopment())
@@ -98,7 +95,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 
-
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())
@@ -108,6 +104,4 @@ using (var scope = app.Services.CreateScope())
 }
 
 
-
 app.Run();
-

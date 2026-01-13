@@ -1,17 +1,17 @@
 ﻿window.paperTransition = {
-    
+
     soundIn: new Audio("/assets/sounds/paper-slide-in.mp3"),
-    
-    dropIn: (elementId) =>{
+
+    dropIn: (elementId) => {
         const el = document.getElementById(elementId);
-        if(!el) return;
-        
+        if (!el) return;
+
         gsap.set(el, {clearProps: "all"});
-        
+
         window.paperTransition.soundIn.currentTime = 0;
-        window.paperTransition.soundIn.play().catch(e=>console.log("Audio error: ", e))
-        
-        gsap.from(el,{
+        window.paperTransition.soundIn.play().catch(e => console.log("Audio error: ", e))
+
+        gsap.from(el, {
             duration: 0.8,
             y: -800,
             rotation: 0,
@@ -20,7 +20,7 @@
             ease: "power3.out",
             delay: 0.1
         });
-        
+
         gsap.to(el, {
             duration: 0.8,
             rotation: 0,
@@ -28,16 +28,19 @@
             delay: 0.1
         });
     },
-    
-    tossOut: (elementId) =>{
+
+    tossOut: (elementId) => {
         return new Promise((resolve) => {
             const el = document.getElementById(elementId);
 
             window.paperTransition.soundIn.currentTime = 0;
             window.paperTransition.soundIn.play().catch(e => console.log("Audio error: ", e));
-            
-            if(!el) {resolve(); return;}
-            
+
+            if (!el) {
+                resolve();
+                return;
+            }
+
             gsap.to(el, {
                 duration: 0.5,
                 x: 1500,

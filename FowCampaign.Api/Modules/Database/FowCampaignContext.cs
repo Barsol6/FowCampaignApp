@@ -7,7 +7,6 @@ namespace FowCampaign.Api.Modules.Database;
 
 public class FowCampaignContext : DbContext
 {
-    
     public FowCampaignContext(DbContextOptions<FowCampaignContext> options) : base(options)
     {
     }
@@ -16,9 +15,9 @@ public class FowCampaignContext : DbContext
     public DbSet<Territory> Territories { get; set; }
     public DbSet<Map> MapConfigs { get; set; }
     public DbSet<Campaign> Campaigns { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-
         modelBuilder.Entity<Territory>(entity =>
         {
             entity.HasOne(x => x.Map)
@@ -34,13 +33,13 @@ public class FowCampaignContext : DbContext
 
         modelBuilder.Entity<CampaignPlayer>(entity =>
         {
-            entity.HasOne(cp=>cp.Campaign)
-                .WithMany(c=>c.Players)
-                .HasForeignKey(cp=>cp.CampaignId);
-            
-            entity.HasOne(cp=>cp.User)
-                .WithMany(u=>u.CampaignsPlayed)
-                .HasForeignKey(cp=>cp.UserId);
+            entity.HasOne(cp => cp.Campaign)
+                .WithMany(c => c.Players)
+                .HasForeignKey(cp => cp.CampaignId);
+
+            entity.HasOne(cp => cp.User)
+                .WithMany(u => u.CampaignsPlayed)
+                .HasForeignKey(cp => cp.UserId);
         });
 
 
@@ -58,12 +57,7 @@ public class FowCampaignContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.MapName).IsRequired().HasMaxLength(50);
         });
-        
+
         base.OnModelCreating(modelBuilder);
     }
 }
-
-
-
-
-

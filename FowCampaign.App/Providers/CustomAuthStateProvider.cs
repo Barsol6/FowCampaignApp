@@ -6,15 +6,15 @@ using Microsoft.AspNetCore.Components.Authorization;
 
 namespace FowCampaign.App.Providers;
 
-public class CustomAuthStateProvider:AuthenticationStateProvider
+public class CustomAuthStateProvider : AuthenticationStateProvider
 {
     private readonly HttpClient _httpClient;
-    
+
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
-    
+
     public CustomAuthStateProvider(HttpClient httpClient)
     {
         _httpClient = httpClient;
@@ -33,22 +33,21 @@ public class CustomAuthStateProvider:AuthenticationStateProvider
                 {
                     var claims = new List<Claim>
                     {
-                        new Claim(ClaimTypes.Name, userDto.Username)
+                        new(ClaimTypes.Name, userDto.Username)
                     };
-                
+
                     var identity = new ClaimsIdentity(claims, "Cookies");
                     var user = new ClaimsPrincipal(identity);
 
                     return new AuthenticationState(user);
                 }
-            
             }
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
         }
-        
+
         return new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
     }
 }

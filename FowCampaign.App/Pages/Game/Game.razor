@@ -1,4 +1,5 @@
-﻿@using System.Net.Http.Json
+﻿@page "/game/{Id:int}"
+@using System.Net.Http.Json
 @using System.Text.Json
 @using FowCampaign.App.DTO
 @using FowCampaign.App.Layout
@@ -6,8 +7,6 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.JSInterop
-
-@page "/game/{Id:int}"
 
 @attribute [Authorize]
 
@@ -22,7 +21,7 @@
 
 
 <PaperSheet @ref="_paper">
-    
+
     @if (_isLoading)
     {
         <div style="text-align:center; padding-top: 100px; font-family: 'Courier New';">
@@ -35,7 +34,9 @@
         <div style="color:red; text-align:center; padding-top: 50px;">
             <h3>MISSION ABORTED</h3>
             <p>Could not load campaign data. Server may be offline.</p>
-            <button class="btn-leave" style="width:auto; padding: 10px 20px;" @onclick='() => NavigationManager.NavigateTo("/home")'>RETURN TO BASE</button>
+            <button class="btn-leave" style="width:auto; padding: 10px 20px;"
+                    @onclick='() => NavigationManager.NavigateTo("/home")'>RETURN TO BASE
+            </button>
         </div>
     }
     else
@@ -74,7 +75,7 @@
                             var canDrag = isMyUnit && isMyTurn;
 
                             var dragClass = canDrag ? "unit-draggable" : "unit-locked";
-                            var pointerClass = (_draggingUnit != null) ? "pointer-events-none" : "";
+                            var pointerClass = _draggingUnit != null ? "pointer-events-none" : "";
 
                             // Dynamic Styles (Must stay inline)
                             var factionColor = GetFactionColor(unit.FactionName);
@@ -87,7 +88,8 @@
                                      @onmousedown="() => StartDrag(unit)"
                                      @onmousedown:stopPropagation="true">
 
-                                    <img src="@def.ImageBase64" style="width:100%; height:100%; object-fit:contain;" title="@def.Name"/>
+                                    <img src="@def.ImageBase64" style="width:100%; height:100%; object-fit:contain;"
+                                         title="@def.Name"/>
                                 </div>
                             }
                         }
@@ -166,23 +168,25 @@
 @code {
     [Parameter] public int Id { get; set; }
     private PaperSheet _paper;
-    private LoadGameDataDto _gameData; 
+    private LoadGameDataDto _gameData;
     private GameStateDto _state;
     private UnitDto _draggingUnit;
-    
-    private bool _isLoading = true;
-    private bool _loadError = false;
-    private bool _mapRendered = false;
 
-    private string GetFactionColor(string factionName) => 
-        _state?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000";
+    private bool _isLoading = true;
+    private bool _loadError;
+    private bool _mapRendered;
+
+    private string GetFactionColor(string factionName)
+    {
+        return _state?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000";
+    }
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _gameData = await Http.GetFromJsonAsync<LoadGameDataDto>($"api/Campaign/{Id}");
-            
+
             if (!string.IsNullOrEmpty(_gameData.GameStateJson))
             {
                 _state = JsonSerializer.Deserialize<GameStateDto>(_gameData.GameStateJson);
@@ -209,19 +213,19 @@
     {
         if (!_isLoading && !_loadError && !_mapRendered && _gameData != null)
         {
-            _mapRendered = true; 
+            _mapRendered = true;
 
-            try 
+            try
             {
                 await JS.InvokeVoidAsync("mapTools.initMap", "gameCanvas", _gameData.MapImageBase64);
-                await Task.Delay(100); 
+                await Task.Delay(100);
 
                 if (_state != null)
                 {
                     foreach (var zone in _state.Zones)
                     {
                         var f = _state.Factions.FirstOrDefault(fn => fn.Name == zone.FactionName);
-                        if(f != null) await JS.InvokeVoidAsync("mapTools.floodFillRaw", (int)zone.X, (int)zone.Y, f.Color);
+                        if (f != null) await JS.InvokeVoidAsync("mapTools.floodFillRaw", (int)zone.X, (int)zone.Y, f.Color);
                     }
                 }
             }
@@ -234,7 +238,7 @@
 
     private void StartDrag(UnitDto unit)
     {
-        if (unit.FactionName == _gameData.MyFactionName && 
+        if (unit.FactionName == _gameData.MyFactionName &&
             _state.CurrentTurnFaction == _gameData.MyFactionName)
         {
             _draggingUnit = unit;
@@ -250,15 +254,20 @@
         }
     }
 
-    private void HandleWrapperMouseUp() => _draggingUnit = null;
+    private void HandleWrapperMouseUp()
+    {
+        _draggingUnit = null;
+    }
 
     private async Task SubmitTurn()
     {
         var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/turn", _state.Units);
         if (response.IsSuccessStatusCode)
         {
-            NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
+            NavigationManager.NavigateTo(NavigationManager.Uri, true);
         }
     }
-    
-}}
+
+}
+
+}

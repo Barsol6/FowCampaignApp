@@ -8,7 +8,6 @@ using FowCampaign.Api.Modules.Database.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 
-
 namespace FowCampaign.Api.Controllers;
 
 [ApiController]
@@ -33,9 +32,7 @@ public class UserController : ControllerBase
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
         if (await _userRepository.CheckIfExistsAsync(user.Username))
-        {
             return Conflict(new { message = "Account already exists" });
-        }
 
         var hashedPassword = _passwordHash.HashPasswords(user.Password, user.Username);
 
@@ -43,14 +40,13 @@ public class UserController : ControllerBase
         {
             Username = user.Username,
             Password = hashedPassword,
-            Role= user.Role,
+            Role = user.Role,
             Color = user.Role switch
             {
                 "Axis" => "Black",
                 "Ally" => "White",
                 _ => "Grey"
             }
-            
         };
 
         await _userRepository.AddUserAsync(newUser);
@@ -65,7 +61,7 @@ public class UserController : ControllerBase
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
         var existingUser = await _userRepository.GetUserAsync(user.Username);
-        
+
         if (existingUser is null)
             return NotFound(new { message = "Account does not exist" });
 
@@ -82,35 +78,35 @@ public class UserController : ControllerBase
             SameSite = SameSiteMode.Strict,
             Expires = DateTime.Now.AddDays(1)
         };
-        
+
         Response.Cookies.Append("authToken", token, cookieOptions);
 
         return Ok(new { message = "Login successful", token });
     }
-    
+
     [HttpPost("logout")]
     public IActionResult Logout()
     {
         var cookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = true, 
+            Secure = true,
             SameSite = SameSiteMode.Strict,
-            Expires = DateTime.UtcNow.AddDays(-1) 
+            Expires = DateTime.UtcNow.AddDays(-1)
         };
         Response.Cookies.Append("authToken", "", cookieOptions);
         return Ok(new { message = "Logged out" });
     }
-    
+
     [HttpGet("me")]
     public async Task<IActionResult> GetMe()
     {
         var username = User.Identity?.Name;
         if (username is null) return Unauthorized();
-        
-        return Ok(new { username = username, isAuthenticated = true});
+
+        return Ok(new { username, isAuthenticated = true });
     }
-    
+
     private string GenerateJwtToken(string username)
     {
         var securitykey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));

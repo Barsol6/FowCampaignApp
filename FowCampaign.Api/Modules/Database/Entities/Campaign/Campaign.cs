@@ -12,5 +12,4 @@ public class Campaign
     public int OwnerId { get; set; }
     public virtual ICollection<CampaignPlayer> Players { get; set; } = new List<CampaignPlayer>();
     public DateTime CreatedAt { get; set; }
-
 }

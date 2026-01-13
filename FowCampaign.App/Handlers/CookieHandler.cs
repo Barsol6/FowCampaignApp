@@ -2,7 +2,7 @@
 
 namespace FowCampaign.App.Handlers;
 
-public class CookieHandler:DelegatingHandler
+public class CookieHandler : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
         CancellationToken cancellationToken)
