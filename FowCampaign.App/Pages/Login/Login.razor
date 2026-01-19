@@ -74,7 +74,7 @@
 
             if (response.IsSuccessStatusCode)
             {
-                await _paper.TossAndNavigate("/home", true);
+                await _paper.TossAndNavigate("/home");
             }
             else if (response.StatusCode == HttpStatusCode.NotFound)
             {

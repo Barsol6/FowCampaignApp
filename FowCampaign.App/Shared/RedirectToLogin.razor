@@ -1,5 +1,9 @@
 ﻿@inject NavigationManager NavigationManager
 
+<NotAuthorized>
+    <RedirectToLogin />
+</NotAuthorized>
+
 @code {
 
     protected override void OnInitialized()

@@ -1,5 +1,5 @@
-﻿@using System.Net.Http.Headers
-@using System.Security.Cryptography
+﻿@page "/campaigncreator"
+@using System.Net.Http.Headers
 @using System.Text.Json
 @using FowCampaign.App.DTO
 @using FowCampaign.App.Layout
@@ -9,8 +9,6 @@
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.Components.WebAssembly.Http
 @using Microsoft.JSInterop
-
-@page "/campaigncreator"
 
 @attribute [Authorize]
 @layout HomeLayout
@@ -102,14 +100,16 @@
                         </button>
                     }
                 </div>
-                <div class="canvas-wrapper" style="position: relative; width: fit-content; margin: 0 auto; display: block; " @onmousemove="HandleWrapperMouseMove"
+                <div class="canvas-wrapper"
+                     style="position: relative; width: fit-content; margin: 0 auto; display: block; "
+                     @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
                     <canvas id="mapCanvas" @onclick="HandleCanvasClick" style="display: block; "></canvas>
                     @foreach (var unit in _deployedUnits)
                     {
                         var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
                         var def = _unitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
-                        var isBeingDragged = (_draggingUnit == unit);
+                        var isBeingDragged = _draggingUnit == unit;
 
                         if (def != null)
                         {
@@ -141,12 +141,29 @@
 
             <div class="paper-form" style="flex: 1; min-width: 300px;">
                 <h4 style="border-bottom: 2px solid #333; padding-bottom: 5px;">FACTIONS</h4>
+                <input @bind="_factionName" placeholder="Faction Name"/>
+                <input type="color" @bind="_factionColor"/>
+                <label style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                    <button class="btn-confirm" @onclick="AddFaction"></button>
+                    ADD FACTION
+                </label>
+              
+                
 
                 @foreach (var faction in _model.Factions)
                 {
-                    <div style="background: rgba(255,255,255,0.5); padding: 10px; margin-bottom: 10px; border: 1px solid #999;">
+                    <div
+                        style="background: rgba(255,255,255,0.5); padding: 10px; margin-bottom: 10px; border: 1px solid #999;">
 
                         <div style="display:flex; align-items:center; gap:10px; margin-bottom: 5px;">
+                            <div class="btn-leave" @onclick="() => 
+                                                   { 
+                                                       _model.Factions.Remove(faction);
+                                                       _deployedUnits.RemoveAll(u => u.FactionName == faction.Name);
+                                                       _recordedZones.RemoveAll(z => z.FactionName == faction.Name);
+                                                    } ">
+                                DELETE FACTION
+                            </div>
                             <div
                                 style="width:25px; height:25px; background:@faction.Color; border:2px solid @(_selectedFaction == faction ? "#000" : "#999"); cursor: pointer;"
                                 @onclick="() => _selectedFaction = faction">
@@ -176,7 +193,8 @@
     }
     @if (_isScanning)
     {
-        <div style="position:fixed; top:20px; right:20px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; z-index:9999;">
+        <div
+            style="position:fixed; top:20px; right:20px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; z-index:9999;">
             Running Intel Scan ...
         </div>
     }
@@ -185,28 +203,30 @@
 
 @code {
     private PaperSheet _paper;
-    private CreateCampaignDto _model = new();
+    private readonly CreateCampaignDto _model = new();
     private FactionDto _selectedFaction;
     private FactionDto _myFaction;
     private FactionDto _startingFaction;
-    private List<ZoneSeedDto> _recordedZones = new();
-    private List<UnitDefinitionDto> _unitDefinitions = new();
-    private List<UnitDto> _deployedUnits = new();
-    private UnitDto _draggingUnit = null;
+    private readonly List<ZoneSeedDto> _recordedZones = new();
+    private readonly List<UnitDefinitionDto> _unitDefinitions = new();
+    private readonly List<UnitDto> _deployedUnits = new();
+    private UnitDto _draggingUnit;
     private List<DetectedLabelDto> _ocrLabels = new();
 
     private string _unitName = string.Empty;
     private string _currentTool = "PAINT";
     private string _selectedDefinitionId;
     private string _imageDataUrl;
-    private bool _hasMap = false;
-    private bool _isScanning = false;
+    private bool _hasMap;
+    private bool _isScanning;
     private byte[] _fileBytes;
     private string _fileContentType;
     private string _errorMessage;
-    private string _regionName = String.Empty;
- 
-    private bool _shouldRenderMap = false;
+    private string _regionName = string.Empty;
+    private string _factionName = string.Empty;
+    private string _factionColor = String.Empty;
+
+    private bool _shouldRenderMap;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -217,47 +237,30 @@
         }
     }
 
-    protected override void OnInitialized()
-    {
-        AddAxis();
-        AddAllies();
-    }
 
-    private void AddAxis()
-    {
-        var f = new FactionDto { Name = "Axis", Color = "#bd2424" };
-        _model.Factions.Add(f);
-        _selectedFaction = f;
-    }
 
-    private void AddAllies()
-    {
-        var f = new FactionDto { Name = "Allies", Color = "#2980b9" };
-        _model.Factions.Add(f);
-    }
-
-    private bool IsReadyToSave => !string.IsNullOrEmpty(_model.Name) && _hasMap && _myFaction != null;
+    private bool IsReadyToSave => !string.IsNullOrEmpty(_model.Name) && _hasMap && _myFaction != null && _model.Factions.Count >= 2;
 
     private async Task HandleImageUpload(InputFileChangeEventArgs e)
     {
         var file = e.File;
         _fileContentType = file.ContentType;
-        long maxFileSize = 1024 * 1024 * 20; 
+        long maxFileSize = 1024 * 1024 * 20;
 
-        try 
+        try
         {
             _fileBytes = new byte[file.Size];
-            await file.OpenReadStream(maxAllowedSize: maxFileSize).ReadAsync(_fileBytes);
+            await file.OpenReadStream(maxFileSize).ReadAsync(_fileBytes);
 
             var base64 = Convert.ToBase64String(_fileBytes);
             _imageDataUrl = $"data:{_fileContentType};base64,{base64}";
-        
+
             _hasMap = true;
             _shouldRenderMap = true;
-            
+
             _isScanning = true;
             StateHasChanged();
-            
+
             _ocrLabels = await JsRuntime.InvokeAsync<List<DetectedLabelDto>>("mapTools.scanMapText", _imageDataUrl);
             Console.WriteLine($"OCR Success: Found {_ocrLabels.Count} regions.");
         }
@@ -282,11 +285,11 @@
         if (_currentTool == "PAINT")
         {
             var realCoords = await JsRuntime.InvokeAsync<PaintCoord>(
-                "mapTools.floodFill", 
+                "mapTools.floodFill",
                 e.OffsetX,
                 e.OffsetY,
                 _selectedFaction.Color
-                );
+            );
             if (realCoords != null)
             {
                 var closestLabel = _ocrLabels
@@ -300,7 +303,7 @@
                     .FirstOrDefault();
 
                 _regionName = closestLabel?.Label.Text ?? "";
-                
+
                 _recordedZones.Add(new ZoneSeedDto
                 {
                     X = realCoords.X,
@@ -308,9 +311,7 @@
                     FactionName = _selectedFaction.Name,
                     Name = _regionName
                 });
-                
             }
-            
         }
         else if (_currentTool == "DEPLOY")
         {
@@ -360,14 +361,14 @@
         imgContent.Headers.ContentType = new MediaTypeHeaderValue(_fileContentType);
         content.Add(imgContent, "MapImage", "map.png");
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "api/Campaign");
+        var request = new HttpRequestMessage(HttpMethod.Post, "api/Campaign/create");
         request.Content = content;
         request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
         var response = await Http.SendAsync(request);
 
         if (response.IsSuccessStatusCode)
         {
-            await _paper.TossAndNavigate("/home", forceLoad: true);
+            await _paper.TossAndNavigate("/home");
         }
         else
         {
@@ -382,6 +383,7 @@
         {
             return;
         }
+
         var file = e.File;
         var resized = await file.RequestImageFileAsync("image/png", 64, 64);
         var buffer = new byte[resized.Size];
@@ -432,13 +434,46 @@
 
     private async void GoBack()
     {
-        await _paper.TossAndNavigate("/home", forceLoad: true);
+        await _paper.TossAndNavigate("/home");
     }
 
     public class PaintCoord
     {
         public double X { get; set; }
         public double Y { get; set; }
+    }
+
+    private async Task AddFaction()
+    {
+        if (_factionName == String.Empty)
+        {
+            return;
+        }
+
+        var exists = _model.Factions.Any(t => t.Name == _factionName);
+        if (exists)
+        {
+            return;
+        }
+
+        var newFaction = new FactionDto
+        {
+            Name = _factionName,
+            Color = _factionColor
+        };
+        
+        _model.Factions.Add(newFaction);
+        
+        _factionName = String.Empty;
+        _factionColor = String.Empty;
+
+        if (_model.Factions.Count==1)
+        {
+            _selectedFaction = newFaction;
+        }
+
+        StateHasChanged();
+
     }
 
 }

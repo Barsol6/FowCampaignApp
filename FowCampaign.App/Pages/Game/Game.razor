@@ -61,7 +61,7 @@
                      @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
 
-                    <canvas id="gameCanvas" class="game-canvas"></canvas>
+                    <canvas id="gameCanvas" class="game-canvas" @onclick="HandleMapClick"></canvas>
 
                     @if (_state != null)
                     {
@@ -69,7 +69,6 @@
                         {
                             var def = _state.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
 
-                            // Dynamic C# Logic for classes
                             var isMyUnit = unit.FactionName == _gameData.MyFactionName;
                             var isMyTurn = _state.CurrentTurnFaction == _gameData.MyFactionName;
                             var canDrag = isMyUnit && isMyTurn;
@@ -77,7 +76,6 @@
                             var dragClass = canDrag ? "unit-draggable" : "unit-locked";
                             var pointerClass = _draggingUnit != null ? "pointer-events-none" : "";
 
-                            // Dynamic Styles (Must stay inline)
                             var factionColor = GetFactionColor(unit.FactionName);
                             var positionStyle = $"left: {unit.X}px; top: {unit.Y}px; border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";
 
@@ -102,16 +100,21 @@
                 <div class="sidebar-section">
                     <h4 class="section-header">COMMAND</h4>
 
-                    @if (_state?.CurrentTurnFaction == _gameData?.MyFactionName)
+                    @if (_state?.CurrentTurnFaction == _gameData?.MyFactionName && _turnPhase == TurnPhase.Planning)
                     {
                         <div class="status-box status-active">
                             <strong>STATUS:</strong> Awaiting Orders
                         </div>
-                        <button class="btn-full btn-confirm" @onclick="SubmitTurn">
+                        <button class="btn-full btn-confirm"
+                                @onclick="() => { 
+                                    _turnPhase = TurnPhase.Capture;
+                                    StateHasChanged();
+                                }"
+                                >
                             ✔ CONFIRM MOVES
                         </button>
                     }
-                    else
+                    else if (_turnPhase == TurnPhase.Planning && _state?.CurrentTurnFaction != _gameData?.MyFactionName)
                     {
                         <div class="status-box status-waiting">
                             <strong>STATUS:</strong> Enemy Acting
@@ -120,6 +123,25 @@
                             WAITING...
                         </button>
                     }
+                    else if (_turnPhase == TurnPhase.Capture && _state?.CurrentTurnFaction == _gameData?.MyFactionName)
+                    {
+                        <div class="status-box status-active">
+                            <strong>STATUS:</strong> Capture Phase
+                        </div>
+                        <button class="btn-full btn-confirm"       
+                                @onclick="() => { 
+                                    _turnPhase = TurnPhase.Planning;
+                                    StateHasChanged();
+                                }"
+                                >
+                            BACK
+                        </button>
+                        <button class="btn-full btn-capture" @onclick="SubmitTurn">
+                            ✔ CONFIRM CAPTURE
+                        </button>
+                    }
+
+
                 </div>
 
                 <div class="intel-table-container">
@@ -172,6 +194,13 @@
     private GameStateDto _state;
     private UnitDto _draggingUnit;
 
+    private enum TurnPhase
+    {
+        Planning,
+        Capture
+    }
+
+    private TurnPhase _turnPhase = TurnPhase.Planning;
     private bool _isLoading = true;
     private bool _loadError;
     private bool _mapRendered;
@@ -238,6 +267,11 @@
 
     private void StartDrag(UnitDto unit)
     {
+        if (_turnPhase != TurnPhase.Planning)
+        {
+            return;
+        }
+
         if (unit.FactionName == _gameData.MyFactionName &&
             _state.CurrentTurnFaction == _gameData.MyFactionName)
         {
@@ -261,13 +295,65 @@
 
     private async Task SubmitTurn()
     {
-        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/turn", _state.Units);
+        var endTurnReqestDto = new EndTurnRequestDto
+        {
+            Units = _state.Units,
+            Zones = _state.Zones
+        };
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/turn", endTurnReqestDto);
         if (response.IsSuccessStatusCode)
         {
             NavigationManager.NavigateTo(NavigationManager.Uri, true);
         }
     }
 
-}
+    private async Task HandleMapClick(MouseEventArgs e)
+    {
+        if (_state?.CurrentTurnFaction== _gameData?.MyFactionName && _turnPhase==TurnPhase.Capture)
+        {
+            
+            var realCoords = await JS.InvokeAsync<PaintCoord>(
+                "mapTools.getSize",
+                e.OffsetX,
+                e.OffsetY
+            );
+
+            ZoneSeedDto _currentRegion = null;
+            var distanceMin = Double.MaxValue;
+
+            foreach (var region in _state.Zones)
+            {
+                var distanceX = realCoords.X- region.X;
+                var distanceY = realCoords.Y - region.Y;
+
+                var distance = distanceX * distanceX + distanceY * distanceY;
+
+                if (distanceMin>distance)
+                {
+                    distanceMin = distance;
+                    _currentRegion = region;
+                }
+                
+            }
+
+            if (_currentRegion != null && distanceMin < 50*50)
+            {
+                _currentRegion.FactionName = _gameData.MyFactionName;
+                var myFactionColor = GetFactionColor(_gameData.MyFactionName);
+                await JS.InvokeVoidAsync("mapTools.floodFillRaw", realCoords.X, realCoords.Y, myFactionColor);
+                
+                StateHasChanged();
+            }
+            
+            
+        }
+    }
+    public class PaintCoord
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
+    }
+
+    
 
 }

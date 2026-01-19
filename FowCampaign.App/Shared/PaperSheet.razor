@@ -1,28 +1,39 @@
 ﻿@inject IJSRuntime JSRuntime
 @inject NavigationManager NavigationManager
 
-<div id="@_elementId" class="paper-sheet-container" style="opacity: 0;">
-    @ChildContent
+<div class="paper-sheet-container" @ref="_paperRef" >
+    <div class="paper-sheet-visual" >
+        @ChildContent
+    </div> 
 </div>
 
+
 @code {
-    [Parameter] public RenderFragment ChildContent { get; set; }
+    [Parameter] public RenderFragment ChildContent { get; set; } = default!;
 
-    private readonly string _elementId = "paper-" + Guid.NewGuid().ToString("N");
-
+    private ElementReference _paperRef;
+    private IJSObjectReference? _module;
+    
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            await JSRuntime.InvokeVoidAsync("paperTransition.dropIn", _elementId);
-        }
+        if (!firstRender) return;
+
+        if (_module == null)
+            _module = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/paper-transition.js");
+
+        if (_paperRef.Context != null)
+            await _module.InvokeVoidAsync("dropIn", _paperRef);
     }
 
-    public async Task TossAndNavigate(string url, bool forceLoad = false)
+    public async Task TossAndNavigate(string url)
     {
-        await JSRuntime.InvokeVoidAsync("paperTransition.tossOut", _elementId);
 
-        NavigationManager.NavigateTo(url, forceLoad);
+        if (_module!= null)
+        {
+            await _module.InvokeVoidAsync("tossOut", _paperRef);
+        }
+
+        NavigationManager.NavigateTo(url);
     }
 
 

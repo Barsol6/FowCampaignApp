@@ -167,6 +167,22 @@
         }
 
         ctx.putImageData(imageData, 0, 0);
+    },
+    
+    
+    getSize:(x,y) =>{
+        const ctx = window.mapTools.ctx;
+        const canvas = window.mapTools.canvas;
+        if (!ctx) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+
+        const startX = Math.floor(x * scaleX);
+        const startY = Math.floor(y * scaleY);
+
+        return {x: startX, y: startY}
     }
 };
 
