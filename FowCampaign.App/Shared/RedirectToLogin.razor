@@ -1,14 +1,11 @@
 ﻿@inject NavigationManager NavigationManager
-
-<NotAuthorized>
-    <RedirectToLogin />
-</NotAuthorized>
+@using Microsoft.AspNetCore.Components.Authorization
 
 @code {
 
     protected override void OnInitialized()
     {
-        NavigationManager.NavigateTo("/login");
+        NavigationManager.NavigateTo("/login", forceLoad:false);
     }
 
 }

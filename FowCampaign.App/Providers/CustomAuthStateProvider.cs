@@ -65,4 +65,13 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     {
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
     }
+    
+    public void NotifyLogOut()
+    {
+        _cachedAuthenticationState = null;
+
+        var anonymousState = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
+        
+        NotifyAuthenticationStateChanged(Task.FromResult(anonymousState));
+    }
 }
