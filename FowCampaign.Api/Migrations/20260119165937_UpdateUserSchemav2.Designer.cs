@@ -3,6 +3,7 @@ using System;
 using FowCampaign.Api.Modules.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FowCampaign.Api.Migrations
 {
     [DbContext(typeof(FowCampaignContext))]
-    partial class FowCampaignContextModelSnapshot : ModelSnapshot
+    [Migration("20260119165937_UpdateUserSchemav2")]
+    partial class UpdateUserSchemav2
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.1");

@@ -1,14 +1,17 @@
-﻿
+﻿@using FowCampaign.App.Shared
+
 <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(App).Assembly">
         <Found Context="routeData">
             <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
                 <NotAuthorized>
-                    @if (true) 
-                    { 
-                        <RedirectToLogin /> 
-                    }
+                    <RedirectToLogin />
                 </NotAuthorized>
+                <Authorizing>
+                    <div style="color:white; font-family: 'Courier New'; text-align:center; margin-top:50px;">
+                        CHECKING CLEARANCE...
+                    </div>
+                </Authorizing>
             </AuthorizeRouteView>
         </Found>
         <NotFound>

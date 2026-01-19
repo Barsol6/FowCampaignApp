@@ -3,10 +3,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FowCampaign.Api.Modules.Database.Repositories;
 
-public class UserRepository:IUserRepository
+public class UserRepository : IUserRepository
 {
     private readonly FowCampaignContext _dbContext;
-    
+
     public UserRepository(FowCampaignContext dbContext)
     {
         _dbContext = dbContext;
@@ -18,19 +18,20 @@ public class UserRepository:IUserRepository
         await _dbContext.SaveChangesAsync();
         return user;
     }
-    
+
     public async Task<bool> CheckIfExistsAsync(string username)
     {
         var exists = _dbContext
             .Users.Any(x => x.Username.ToLower() == username);
         return exists;
     }
+
     public async Task<User> GetUserAsync(int id)
     {
         var user = await _dbContext.Users.FindAsync(id);
         return user;
-    } 
-    
+    }
+
     public async Task<User> GetUserAsync(string username)
     {
         var user = await _dbContext

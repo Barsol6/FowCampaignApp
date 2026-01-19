@@ -6,15 +6,16 @@ using Microsoft.AspNetCore.Components.Authorization;
 
 namespace FowCampaign.App.Providers;
 
-public class CustomAuthStateProvider:AuthenticationStateProvider
+public class CustomAuthStateProvider : AuthenticationStateProvider
 {
     private readonly HttpClient _httpClient;
-    
+
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
-    
+
+    private AuthenticationState? _cachedAuthenticationState;
     public CustomAuthStateProvider(HttpClient httpClient)
     {
         _httpClient = httpClient;
@@ -22,6 +23,11 @@ public class CustomAuthStateProvider:AuthenticationStateProvider
 
     public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
+        if (_cachedAuthenticationState != null)
+        {
+            return _cachedAuthenticationState;
+        }
+        
         try
         {
             var response = await _httpClient.GetAsync("api/User/me");
@@ -33,15 +39,16 @@ public class CustomAuthStateProvider:AuthenticationStateProvider
                 {
                     var claims = new List<Claim>
                     {
-                        new Claim(ClaimTypes.Name, userDto.Username)
+                        new(ClaimTypes.Name, userDto.Username)
                     };
-                
+
                     var identity = new ClaimsIdentity(claims, "Cookies");
                     var user = new ClaimsPrincipal(identity);
+                    
+                    _cachedAuthenticationState = new AuthenticationState(user);
 
-                    return new AuthenticationState(user);
+                    return _cachedAuthenticationState;
                 }
-            
             }
         }
         catch (Exception e)
@@ -49,6 +56,22 @@ public class CustomAuthStateProvider:AuthenticationStateProvider
             Console.WriteLine(e);
         }
         
-        return new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
+        _cachedAuthenticationState = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
+
+        return _cachedAuthenticationState;
+    }
+
+    public void NotifyAuthState()
+    {
+        NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
+    }
+    
+    public void NotifyLogOut()
+    {
+        _cachedAuthenticationState = null;
+
+        var anonymousState = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
+        
+        NotifyAuthenticationStateChanged(Task.FromResult(anonymousState));
     }
 }
