@@ -62,7 +62,17 @@
                      @onmouseup="HandleWrapperMouseUp">
 
                     <canvas id="gameCanvas" class="game-canvas" @onclick="HandleMapClick"></canvas>
-
+                    @if (_isProcessingMap)
+                    {
+                        <div class="map-overlay-blocker">
+                            <div class="processing-panel">
+                                <div class="processing-text">UPDATING TACTICAL MAP...</div>
+                                <div class="progress-track">
+                                    <div class="progress-bar-moving"></div>
+                                </div>
+                            </div>
+                        </div>
+                    }
                     @if (_state != null)
                     {
                         @foreach (var unit in _state.Units)
@@ -92,6 +102,8 @@
                             }
                         }
                     }
+
+                    }
                 </div>
             </div>
 
@@ -110,7 +122,7 @@
                                     _turnPhase = TurnPhase.Capture;
                                     StateHasChanged();
                                 }"
-                                >
+                        >
                             ✔ CONFIRM MOVES
                         </button>
                     }
@@ -128,12 +140,12 @@
                         <div class="status-box status-active">
                             <strong>STATUS:</strong> Capture Phase
                         </div>
-                        <button class="btn-full btn-confirm"       
+                        <button class="btn-full btn-confirm"
                                 @onclick="() => { 
                                     _turnPhase = TurnPhase.Planning;
                                     StateHasChanged();
                                 }"
-                                >
+                        >
                             BACK
                         </button>
                         <button class="btn-full btn-capture" @onclick="SubmitTurn">
@@ -193,11 +205,13 @@
     private LoadGameDataDto _gameData;
     private GameStateDto _state;
     private UnitDto _draggingUnit;
+    private bool _isProcessingMap = false;
 
     private enum TurnPhase
     {
         Planning,
-        Capture
+        Capture,
+        Processing
     }
 
     private TurnPhase _turnPhase = TurnPhase.Planning;
@@ -309,51 +323,86 @@
 
     private async Task HandleMapClick(MouseEventArgs e)
     {
-        if (_state?.CurrentTurnFaction== _gameData?.MyFactionName && _turnPhase==TurnPhase.Capture)
+        if (_state == null || _gameData == null || _isProcessingMap) return;
+
+        if (_state.CurrentTurnFaction != _gameData.MyFactionName || _turnPhase != TurnPhase.Capture)
         {
-            
+            return;
+        }
+        
+        _isProcessingMap = true;
+        StateHasChanged();
+        _turnPhase = TurnPhase.Processing;
+        
+        await Task.Delay(50);
+
+        try
+        {
+
             var realCoords = await JS.InvokeAsync<PaintCoord>(
                 "mapTools.getSize",
                 e.OffsetX,
                 e.OffsetY
             );
 
-            ZoneSeedDto _currentRegion = null;
+            if (realCoords == null)
+            {
+                return;
+            }
+
+            ZoneSeedDto currentRegion = null;
             var distanceMin = Double.MaxValue;
 
             foreach (var region in _state.Zones)
             {
-                var distanceX = realCoords.X- region.X;
+                var distanceX = realCoords.X - region.X;
                 var distanceY = realCoords.Y - region.Y;
 
                 var distance = distanceX * distanceX + distanceY * distanceY;
 
-                if (distanceMin>distance)
+                if (distanceMin > distance)
                 {
                     distanceMin = distance;
-                    _currentRegion = region;
+                    currentRegion = region;
                 }
-                
             }
+            
+            double maxDistanceSquared = 250 * 250;
 
-            if (_currentRegion != null && distanceMin < 50*50)
+            if (currentRegion != null && distanceMin < maxDistanceSquared)
             {
-                _currentRegion.FactionName = _gameData.MyFactionName;
-                var myFactionColor = GetFactionColor(_gameData.MyFactionName);
-                await JS.InvokeVoidAsync("mapTools.floodFillRaw", realCoords.X, realCoords.Y, myFactionColor);
+                Console.WriteLine($"DEBUG: Trafiono region {currentRegion.Name}. Rozpoczynam kolorowanie...");
                 
-                StateHasChanged();
+                currentRegion.FactionName = _gameData.MyFactionName;
+                var myFactionColor = GetFactionColor(_gameData.MyFactionName);
+                
+                await JS.InvokeVoidAsync("mapTools.floodFillRaw", (int)currentRegion.X, (int)currentRegion.Y, myFactionColor);
+
+                _state.Zones = _state.Zones.Select(z =>
+                    z.X == currentRegion.X && z.Y == currentRegion.Y
+                        ? new ZoneSeedDto { X = z.X, Y = z.Y, FactionName = currentRegion.FactionName, Name = z.Name }
+                        : z
+                ).ToList();
             }
-            
-            
+        }
+        
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Coloring Error: {ex.Message}");
+        }
+        finally
+        {
+            _isProcessingMap = false;
+            _turnPhase = TurnPhase.Capture;
+            StateHasChanged();
         }
     }
+
     public class PaintCoord
     {
         public double X { get; set; }
         public double Y { get; set; }
     }
 
-    
 
 }
