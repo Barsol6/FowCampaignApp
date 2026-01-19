@@ -108,17 +108,17 @@ namespace FowCampaign.Api.Migrations
                     b.Property<int>("CampaignId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("UserId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("factionName")
+                    b.Property<string>("FactionName")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("isAlive")
+                    b.Property<bool>("IsAlive")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("isTurn")
+                    b.Property<bool>("IsTurn")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserId")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
@@ -136,15 +136,7 @@ namespace FowCampaign.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("Color")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Password")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Role")
                         .IsRequired()
                         .HasColumnType("TEXT");
 

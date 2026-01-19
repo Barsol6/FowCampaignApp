@@ -36,7 +36,6 @@ public class SignUp
         {
             Username = username,
             Password = password,
-            Role = role
         };
 
         await UserRepository.AddUserAsync(user);

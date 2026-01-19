@@ -13,11 +13,9 @@
 <div class="container">
     <PaperSheet @ref="_paper">
         <div class="signInPanel">
-
             <div class="title">
                 @_loginStatement
             </div>
-
             <div class="login">
 
                 <div class="data-box">
@@ -31,18 +29,11 @@
                 </div>
 
                 <div class="data-box">
-                    <input type="password" @bind="_passwordRepeat" @onkeydown="Enter" placeholder="******" required/>
+                    <input type="password" @bind="User.ConfirmPassword" @onkeydown="Enter" placeholder="******"
+                           required/>
                     <label> REPEAT PASSWORD </label>
                 </div>
 
-                <div class="data-box">
-                    <select @bind="User.Role">
-                        <option value="" disabled selected>Select Allegiance</option>
-                        <option value="Axis">Axis Powers</option>
-                        <option value="Ally">Allied Forces</option>
-                    </select>
-                    <label> FACTION </label>
-                </div>
 
                 <br/>
 
@@ -67,7 +58,6 @@
 
 @code {
     private string _loginStatement = "FILL FORM";
-    private string _passwordRepeat = string.Empty;
     private PaperSheet _paper;
 
     private async Task Enter(KeyboardEventArgs e)
@@ -80,34 +70,51 @@
 
     private async Task HandleUserSignUp()
     {
-        Console.WriteLine("dupa");
-        if (!string.IsNullOrWhiteSpace(User.Username) && !string.IsNullOrWhiteSpace(User.Password))
+        _loginStatement = "TRANSMITTING...";
+
+        if (string.IsNullOrWhiteSpace(User.Username) || string.IsNullOrWhiteSpace(User.Password))
         {
-            if (User.Password != _passwordRepeat)
-            {
-                _loginStatement = "Passwords do not match";
-                return;
-            }
+            _loginStatement = "MISSING DATA";
+            return;
+        }
 
-            var exists = await Http.PostAsJsonAsync("api/User/register", User);
+        var exists = await Http.PostAsJsonAsync("api/User/register", User);
 
-            if (exists.StatusCode == HttpStatusCode.Conflict)
-            {
-                _loginStatement = "USERNAME ALREADY USED";
-                StateHasChanged();
-            }
-            else if (exists.IsSuccessStatusCode)
-            {
-                _loginStatement = "SUCCES";
-                StateHasChanged();
-                await Task.Delay(1000);
-                User.Username = string.Empty;
-                User.Password = string.Empty;
-                _passwordRepeat = string.Empty;
-                await _paper.TossAndNavigate("/login");
-            }
+        if (exists.StatusCode == HttpStatusCode.Conflict)
+        {
+            _loginStatement = "CODENAME TAKEN";
+            StateHasChanged();
+        }
+        else if (exists.IsSuccessStatusCode)
+        {
+            _loginStatement = "REGISTRATION SUCCESSFUL";
+            StateHasChanged();
+            await Task.Delay(1000);
+            
+            User.Username = string.Empty;
+            User.Password = string.Empty;
+            User.ConfirmPassword = string.Empty;
+            
+            await _paper.TossAndNavigate("/login");
+
 
             StateHasChanged();
+        }
+        else if(exists.StatusCode == HttpStatusCode.BadRequest)
+        {
+            var errors = await exists.Content.ReadFromJsonAsync<List<ValidationError>>();
+            if (errors != null && errors.Count > 0)
+            {
+                _loginStatement = errors.First().ErrorMessage.ToUpper();
+            }
+            else
+            {
+                _loginStatement = "INVALID DATA";
+            }
+        }
+        else
+        {
+            _loginStatement = "TRANSMISSION ERROR";
         }
     }
 
@@ -116,6 +123,13 @@
     {
         await _paper.TossAndNavigate("/login");
         StateHasChanged();
+    }
+
+
+    public class ValidationError
+    {
+        public string PropertyName { get; set; }
+        public string ErrorMessage { get; set; }
     }
 
 

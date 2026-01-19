@@ -1,4 +1,5 @@
 using System.Text;
+using FluentValidation;
 using FowCampaign.Api.Modules.Account;
 using FowCampaign.Api.Modules.Database;
 using FowCampaign.Api.Modules.Database.Repositories;
@@ -68,6 +69,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddScoped<PasswordHash>();
 builder.Services.AddScoped<SignUp>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 var app = builder.Build();
 

@@ -802,7 +802,7 @@ canvas {
     height: 100%;
     width: 40%;
     background-color: #b71c1c;
-    animation: scan-animation 1.s linear infinite;
+    animation: scan-animation 1s linear infinite;
 }
 @keyframes scan-animation {
     0% { left: -30%; }
