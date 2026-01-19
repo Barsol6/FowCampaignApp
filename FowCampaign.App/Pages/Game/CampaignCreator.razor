@@ -54,166 +54,167 @@
 
     @if (_hasMap)
     {
-    <div class="paper-form"
-         style="margin-bottom: 15px; border: 1px dashed #555; background-color: #fcf8e3; padding: 10px;">
-        <h4 style="margin-top:0;">UNIT CREATOR</h4>
-        <input type="text" class="tactical-input" @bind="_unitName" style="padding-bottom: 5px;"
-               placeholder="Unit Name"/>
-        <div style="display:flex; gap: 20px; align-items: flex-start;">
-            <label class="logButton" style="font-size: 0.7rem; padding: 5px;">
-                + NEW Unit
-                <InputFile OnChange="@HandleIconUnitUpload" style="display: none;" accept="image/*"/>
-            </label>
+        <div class="paper-form"
+             style="margin-bottom: 15px; border: 1px dashed #555; background-color: #fcf8e3; padding: 10px;">
+            <h4 style="margin-top:0;">UNIT CREATOR</h4>
+            <input type="text" class="tactical-input" @bind="_unitName" style="padding-bottom: 5px;"
+                   placeholder="Unit Name"/>
+            <div style="display:flex; gap: 20px; align-items: flex-start;">
+                <label class="logButton" style="font-size: 0.7rem; padding: 5px;">
+                    + NEW Unit
+                    <InputFile OnChange="@HandleIconUnitUpload" style="display: none;" accept="image/*"/>
+                </label>
 
-            @foreach (var def in _unitDefinitions)
-            {
-                <div @onclick="() => _selectedDefinitionId = def.Id"
-                     style="cursor: pointer; padding: 5px; border: 2px solid @(_selectedDefinitionId == def.Id ? "#bd2424" : "transparent");">
-                    <img src="@def.ImageBase64" style="width: 32px; height: 32px; display: block; margin: 0 auto;"/>
-                    <input @bind="def.Name"
-                           style="width: 80px; border: none; background: transparent; text-align: center; font-size: 0.8rem;"/>
-                </div>
-            }
-        </div>
-    </div>
-    <div style="display: flex; gap: 20px; align-items: flex-start; margin-top: 20px;">
-
-        <div style="flex: 2;">
-            <div
-                style="background: #ddd; padding: 5px; margin-bottom: 5px; display: flex; gap: 10px; align-items: center;">
-                <button style="@(_currentTool == "PAINT" ? "background:#333; color:white;" : "")"
-                        @onclick='() => _currentTool = "PAINT"'>
-                    PAINT
-                </button>
-                <button style="@(_currentTool == "DEPLOY" ? "background:#333; color:white;" : "")"
-                        @onclick='() => _currentTool = "DEPLOY"'>
-                    DEPLOY
-                </button>
-
-                @if (_currentTool == "DEPLOY")
+                @foreach (var def in _unitDefinitions)
                 {
-                    <span style="font-size:0.8rem;">Select Unit Type above ↑</span>
-                    <button
-                        @onclick="() => { if(_deployedUnits.Any()) _deployedUnits.RemoveAt(_deployedUnits.Count - 1); }"
-                        style="margin-left:auto; color:red;">
-                        UNDO
-                    </button>
-                }
-            </div>
-            <div class="canvas-wrapper"
-                 style="position: relative; width: fit-content; margin: 0 auto; display: block; "
-                 @onmousemove="HandleWrapperMouseMove"
-                 @onmouseup="HandleWrapperMouseUp">
-                <canvas id="mapCanvas" @onclick="HandleCanvasClick" style="display: block; "></canvas>
-                @foreach (var unit in _deployedUnits)
-                {
-                    var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
-                    var def = _unitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
-                    var isBeingDragged = _draggingUnit == unit;
-
-                    if (def != null)
-                    {
-                        <div class="map-unit @(isBeingDragged ? "is-dragging" : "")"
-                             style="position: absolute;
-                                 left: @(unit.X)px;
-                             top: @(unit.Y)px;
-                             transform: translate(-50%, -50%);
-                             border: 2px solid @factionColor;
-                             box-shadow: 0 0 5px @factionColor;
-                             pointer-events: @(isBeingDragged ? "none" : "auto");"
-                             @onmousedown="() => StartDrag(unit)"
-                             @onmousedown:stopPropagation="true"
-                             @oncontextmenu="() => DeleteUnit(unit)"
-                             @oncontextmenu:preventDefault="true">
-
-                            <img src="@def.ImageBase64" style="width: 100%; height: 100%; object-fit: contain;"/>
-                        </div>
-                    }
-                }
-            </div>
-            <div style="text-align: center; margin-top: 5px;">
-                <button @onclick="ResetMap"
-                        style="color: #d32f2f; background: none; border: none; font-weight: bold; cursor: pointer;">
-                    [RESET MAP]
-                </button>
-            </div>
-        </div>
-
-        <div class="paper-form faction-dossier-panel" style="flex: 1; min-width: 350px;">
-
-            <div class="new-faction-row">
-                <input type="color" class="color-picker-chip" @bind="_factionColor" title="Faction Color"/>
-                <input class="input-military" @bind="_factionName" placeholder="NEW FACTION NAME..."/>
-
-                <button class="logButton" style="width: auto; padding: 10px; font-size: 0.9rem;" @onclick="AddFaction">
-                    ADD
-                </button>
-            </div>
-
-            <div style="max-height: 500px; overflow-y: auto; padding: 5px;">
-                @foreach (var faction in _model.Factions)
-                {
-                    <div class="faction-card" style="border-left: 5px solid @faction.Color;">
-
-                        <div class="faction-header-row">
-                            <div style="width:25px; height:25px; background:@faction.Color;
-                            border:2px solid @(_selectedFaction == faction ? "#000" : "#ddd");
-                            box-shadow: @(_selectedFaction == faction ? "0 0 5px #000" : "none");
-                            cursor: pointer;"
-                                 @onclick="() => _selectedFaction = faction"
-                                 title="Select to Paint">
-                            </div>
-
-                            <input @bind="faction.Name"
-                                   style="border:none; background:transparent; font-weight:bold; 
-                                  font-family: 'Black Ops One'; font-size: 1.1rem; width: 100%; color: #333;"/>
-
-                            <button class="btn-card-delete"
-                                    @onclick="() => { 
-                                        _model.Factions.Remove(faction);
-                                        _deployedUnits.RemoveAll(u => u.FactionName == faction.Name);
-                                        _recordedZones.RemoveAll(z => z.FactionName == faction.Name);
-                                    }" title="Scrap Faction">
-                                &times;
-                            </button>
-                        </div>
-
-                        <div class="faction-options-row">
-
-                            <label>
-                                <input type="checkbox" class="hidden-checkbox"
-                                       checked="@(_myFaction == faction)"
-                                       @onchange="() => _myFaction = faction"/>
-                                <div class="stamp-option stamp-commander">
-                                    <div class="stamp-badge"></div>
-                                    <span>COMMAND</span>
-                                </div>
-                            </label>
-
-                            <label>
-                                <input type="checkbox" class="hidden-checkbox"
-                                       checked="@(_startingFaction == faction)"
-                                       @onchange="() => _startingFaction = faction"/>
-                                <div class="stamp-option stamp-starter">
-                                    <div class="stamp-badge"></div>
-                                    <span>1ST TURN</span>
-                                </div>
-                            </label>
-
-                        </div>
+                    <div @onclick="() => _selectedDefinitionId = def.Id"
+                         style="cursor: pointer; padding: 5px; border: 2px solid @(_selectedDefinitionId == def.Id ? "#bd2424" : "transparent");">
+                        <img src="@def.ImageBase64" style="width: 32px; height: 32px; display: block; margin: 0 auto;"/>
+                        <input @bind="def.Name"
+                               style="width: 80px; border: none; background: transparent; text-align: center; font-size: 0.8rem;"/>
                     </div>
                 }
             </div>
         </div>
-    </div>
-        }
-        @if (_isScanning)
-        {
-            <div
-                style="position:fixed; top:20px; right:20px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; z-index:9999;">
-                Running Intel Scan ...
+        <div style="display: flex; gap: 20px; align-items: flex-start; margin-top: 20px;">
+
+            <div style="flex: 2;">
+                <div
+                    style="background: #ddd; padding: 5px; margin-bottom: 5px; display: flex; gap: 10px; align-items: center;">
+                    <button style="@(_currentTool == "PAINT" ? "background:#333; color:white;" : "")"
+                            @onclick='() => _currentTool = "PAINT"'>
+                        PAINT
+                    </button>
+                    <button style="@(_currentTool == "DEPLOY" ? "background:#333; color:white;" : "")"
+                            @onclick='() => _currentTool = "DEPLOY"'>
+                        DEPLOY
+                    </button>
+
+                    @if (_currentTool == "DEPLOY")
+                    {
+                        <span style="font-size:0.8rem;">Select Unit Type above ↑</span>
+                        <button
+                            @onclick="() => { if(_deployedUnits.Any()) _deployedUnits.RemoveAt(_deployedUnits.Count - 1); }"
+                            style="margin-left:auto; color:red;">
+                            UNDO
+                        </button>
+                    }
+                </div>
+                <div class="canvas-wrapper"
+                     style="position: relative; width: fit-content; margin: 0 auto; display: block; "
+                     @onmousemove="HandleWrapperMouseMove"
+                     @onmouseup="HandleWrapperMouseUp">
+                    <canvas id="mapCanvas" @onclick="HandleCanvasClick" style="display: block; "></canvas>
+                    @foreach (var unit in _deployedUnits)
+                    {
+                        var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
+                        var def = _unitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
+                        var isBeingDragged = _draggingUnit == unit;
+
+                        if (def != null)
+                        {
+                            <div class="map-unit @(isBeingDragged ? "is-dragging" : "")"
+                                 style="position: absolute;
+                                     left: @(unit.X)px;
+                                 top: @(unit.Y)px;
+                                 transform: translate(-50%, -50%);
+                                 border: 2px solid @factionColor;
+                                 box-shadow: 0 0 5px @factionColor;
+                                 pointer-events: @(isBeingDragged ? "none" : "auto");"
+                                 @onmousedown="() => StartDrag(unit)"
+                                 @onmousedown:stopPropagation="true"
+                                 @oncontextmenu="() => DeleteUnit(unit)"
+                                 @oncontextmenu:preventDefault="true">
+
+                                <img src="@def.ImageBase64" style="width: 100%; height: 100%; object-fit: contain;"/>
+                            </div>
+                        }
+                    }
+                </div>
+                <div style="text-align: center; margin-top: 5px;">
+                    <button @onclick="ResetMap"
+                            style="color: #d32f2f; background: none; border: none; font-weight: bold; cursor: pointer;">
+                        [RESET MAP]
+                    </button>
+                </div>
             </div>
-        }
+
+            <div class="paper-form faction-dossier-panel" style="flex: 1; min-width: 350px;">
+
+                <div class="new-faction-row">
+                    <input type="color" class="color-picker-chip" @bind="_factionColor" title="Faction Color"/>
+                    <input class="input-military" @bind="_factionName" placeholder="NEW FACTION NAME..."/>
+
+                    <button class="logButton" style="width: auto; padding: 10px; font-size: 0.9rem;"
+                            @onclick="AddFaction">
+                        ADD
+                    </button>
+                </div>
+
+                <div style="max-height: 500px; overflow-y: auto; padding: 5px;">
+                    @foreach (var faction in _model.Factions)
+                    {
+                        <div class="faction-card" style="border-left: 5px solid @faction.Color;">
+
+                            <div class="faction-header-row">
+                                <div style="width:25px; height:25px; background:@faction.Color;
+                                border:2px solid @(_selectedFaction == faction ? "#000" : "#ddd");
+                                box-shadow: @(_selectedFaction == faction ? "0 0 5px #000" : "none");
+                                cursor: pointer;"
+                                     @onclick="() => _selectedFaction = faction"
+                                     title="Select to Paint">
+                                </div>
+
+                                <input @bind="faction.Name"
+                                       style="border:none; background:transparent; font-weight:bold; 
+                                  font-family: 'Black Ops One'; font-size: 1.1rem; width: 100%; color: #333;"/>
+
+                                <button class="btn-card-delete"
+                                        @onclick="() => { 
+                                        _model.Factions.Remove(faction);
+                                        _deployedUnits.RemoveAll(u => u.FactionName == faction.Name);
+                                        _recordedZones.RemoveAll(z => z.FactionName == faction.Name);
+                                    }" title="Scrap Faction">
+                                    &times;
+                                </button>
+                            </div>
+
+                            <div class="faction-options-row">
+
+                                <label>
+                                    <input type="checkbox" class="hidden-checkbox"
+                                           checked="@(_myFaction == faction)"
+                                           @onchange="() => _myFaction = faction"/>
+                                    <div class="stamp-option stamp-commander">
+                                        <div class="stamp-badge"></div>
+                                        <span>COMMAND</span>
+                                    </div>
+                                </label>
+
+                                <label>
+                                    <input type="checkbox" class="hidden-checkbox"
+                                           checked="@(_startingFaction == faction)"
+                                           @onchange="() => _startingFaction = faction"/>
+                                    <div class="stamp-option stamp-starter">
+                                        <div class="stamp-badge"></div>
+                                        <span>1ST TURN</span>
+                                    </div>
+                                </label>
+
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    @if (_isScanning)
+    {
+        <div
+            style="position:fixed; top:20px; right:20px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; z-index:9999;">
+            Running Intel Scan ...
+        </div>
+    }
 </PaperSheet>
 
 @code {
@@ -313,23 +314,23 @@
                         Label = l,
                         Distance = Math.Sqrt(Math.Pow(l.X - realCoords.X, 2) + Math.Pow(l.Y - realCoords.Y, 2))
                     })
-                    .Where(x => x.Distance < 1000)
+                    .Where(x => x.Distance < 1500) 
                     .OrderBy(x => x.Distance)
                     .FirstOrDefault();
 
-                _regionName = !string.IsNullOrWhiteSpace(closestLabel?.Label.Text)
-                    ? closestLabel.Label.Text
+                _regionName = !string.IsNullOrWhiteSpace(closestLabel?.Label.Text) 
+                    ? closestLabel.Label.Text 
                     : "UNKNOWN SECTOR";
 
                 var nearbyExistingZone = _recordedZones
-                    .Where(z => z.Name == _regionName)
-                    .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 800);
+                    .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 40);
 
-                if (nearbyExistingZone != null && _regionName != "UNKNOWN SECTOR")
+                if (nearbyExistingZone != null)
                 {
                     nearbyExistingZone.FactionName = _selectedFaction.Name;
                     nearbyExistingZone.X = realCoords.X;
                     nearbyExistingZone.Y = realCoords.Y;
+                    nearbyExistingZone.Name = _regionName;
                 }
                 else
                 {
@@ -356,7 +357,6 @@
             });
         }
     }
-
     private async Task ResetMap()
     {
         await JsRuntime.InvokeVoidAsync("mapTools.resetMap");

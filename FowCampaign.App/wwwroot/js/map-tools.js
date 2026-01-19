@@ -5,20 +5,42 @@
     originalImageData: null,
 
     initMap: (canvasId, imageSrc) => {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d', {willReadFrequently: true});
-        const img = new Image();
-        img.onload = () => {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-            window.mapTools.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            window.mapTools.canvas = canvas;
-            window.mapTools.ctx = ctx;
-            window.mapTools.img = img;
-        };
-        img.src = imageSrc;
+        return new Promise((resolve) => {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) {
+                console.warn("Canvas element not found: " + canvasId);
+                resolve();
+                return;
+            }
+
+            if (!imageSrc) {
+                console.warn("Image source is empty.");
+                resolve();
+                return;
+            }
+
+            const ctx = canvas.getContext('2d', {willReadFrequently: true});
+            const img = new Image();
+
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                window.mapTools.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                window.mapTools.canvas = canvas;
+                window.mapTools.ctx = ctx;
+                window.mapTools.img = img;
+                resolve();
+            };
+
+          
+            img.onerror = (err) => {
+                console.error("Failed to load map image.", err);
+                resolve(); 
+            };
+
+            img.src = imageSrc;
+        });
     },
 
     preprocessImageForOCR: (imageSrc) => {
@@ -168,53 +190,92 @@
         const ctx = window.mapTools.ctx;
         const canvas = window.mapTools.canvas;
         if (!ctx || !canvas) return null;
-        if (startX < 0 || startY < 0 || startX >= canvas.width || startY >= canvas.height) return null;
 
-        const r = parseInt(colorHex.slice(1, 3), 16);
-        const g = parseInt(colorHex.slice(3, 5), 16);
-        const b = parseInt(colorHex.slice(5, 7), 16);
-        const fillRgb = {r, g, b, a: 255};
+        const width = canvas.width;
+        const height = canvas.height;
 
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imageData.data;
-        const visited = new Uint8Array(canvas.width * canvas.height);
+        if (startX < 0 || startY < 0 || startX >= width || startY >= height) return null;
 
-        const getPixelColor = (index) => ({
-            r: data[index], g: data[index + 1], b: data[index + 2], a: data[index + 3]
-        });
+        const originalData = window.mapTools.originalImageData ? window.mapTools.originalImageData.data : ctx.getImageData(0, 0, width, height).data;
+        const currentImageData = ctx.getImageData(0, 0, width, height);
+        const data = currentImageData.data;
 
-        const isBorder = (c) => c.r < 80 && c.g < 80 && c.b < 80;
+        const visited = new Uint8Array(width * height);
 
-        const colorMatch = (c1, c2, tol = tolerance) => {
-            if (isBorder(c1) || isBorder(c2)) return false;
-            return Math.abs(c1.r - c2.r) < tol && Math.abs(c1.g - c2.g) < tol && Math.abs(c1.b - c2.b) < tol;
+        let effectiveX = Math.floor(startX);
+        let effectiveY = Math.floor(startY);
+
+        const getBrightness = (x, y) => {
+            const idx = (y * width + x) * 4;
+            return (originalData[idx] + originalData[idx+1] + originalData[idx+2]) / 3;
         };
 
-        const startPos = (startY * canvas.width + startX) * 4;
-        const startColor = getPixelColor(startPos);
+        if (getBrightness(effectiveX, effectiveY) < 80) {
+            let foundSafeSpot = false;
+            for (let r = 1; r <= 8; r++) {
+                const offsets = [[0, r], [0, -r], [r, 0], [-r, 0], [r, r], [-r, -r]];
+                for (let o of offsets) {
+                    const nx = effectiveX + o[0];
+                    const ny = effectiveY + o[1];
+                    if(nx >= 0 && ny >= 0 && nx < width && ny < height) {
+                        if (getBrightness(nx, ny) > 100) {
+                            effectiveX = nx;
+                            effectiveY = ny;
+                            foundSafeSpot = true;
+                            break;
+                        }
+                    }
+                }
+                if(foundSafeSpot) break;
+            }
+            if (!foundSafeSpot) return null;
+        }
 
-        if (isBorder(startColor)) return null;
-        if (colorMatch(startColor, fillRgb, 10)) return {x: startX, y: startY};
+        let r, g, b;
+        if (colorHex.length === 4) {
+            r = parseInt(colorHex[1] + colorHex[1], 16);
+            g = parseInt(colorHex[2] + colorHex[2], 16);
+            b = parseInt(colorHex[3] + colorHex[3], 16);
+        } else {
+            r = parseInt(colorHex.slice(1, 3), 16);
+            g = parseInt(colorHex.slice(3, 5), 16);
+            b = parseInt(colorHex.slice(5, 7), 16);
+        }
+        const fillRgb = {r, g, b, a: 255};
 
-        const queue = [[startX, startY]];
-        visited[startY * canvas.width + startX] = 1;
+        const startIdx = (effectiveY * width + effectiveX) * 4;
+        const startR = originalData[startIdx];
+        const startG = originalData[startIdx + 1];
+        const startB = originalData[startIdx + 2];
+
+        const colorsMatch = (idx) => {
+            const or = originalData[idx];
+            const og = originalData[idx+1];
+            const ob = originalData[idx+2];
+            const diff = Math.abs(or - startR) + Math.abs(og - startG) + Math.abs(ob - startB);
+            return diff < 100;
+        };
+
+        const queue = [[effectiveX, effectiveY]];
+        visited[effectiveY * width + effectiveX] = 1;
 
         while (queue.length > 0) {
             const [x, y] = queue.shift();
-            const pixelIndex = (y * canvas.width + x) * 4;
-            const currentColor = getPixelColor(pixelIndex);
+            const pixelIndex = (y * width + x) * 4;
 
-            if (colorMatch(currentColor, startColor)) {
-                data[pixelIndex] = fillRgb.r;
-                data[pixelIndex + 1] = fillRgb.g;
-                data[pixelIndex + 2] = fillRgb.b;
-                data[pixelIndex + 3] = fillRgb.a;
+            data[pixelIndex] = fillRgb.r;
+            data[pixelIndex + 1] = fillRgb.g;
+            data[pixelIndex + 2] = fillRgb.b;
+            data[pixelIndex + 3] = fillRgb.a;
 
-                const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-                for (const [nx, ny] of neighbors) {
-                    if (nx >= 0 && ny >= 0 && nx < canvas.width && ny < canvas.height) {
-                        const vIdx = ny * canvas.width + nx;
-                        if (!visited[vIdx]) {
+            const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+            for (const [nx, ny] of neighbors) {
+                if (nx >= 0 && ny >= 0 && nx < width && ny < height) {
+                    const vIdx = ny * width + nx;
+                    const nIdx = vIdx * 4;
+
+                    if (visited[vIdx] === 0) {
+                        if (colorsMatch(nIdx)) {
                             visited[vIdx] = 1;
                             queue.push([nx, ny]);
                         }
@@ -222,9 +283,11 @@
                 }
             }
         }
-        ctx.putImageData(imageData, 0, 0);
-        return {x: startX, y: startY};
+
+        ctx.putImageData(currentImageData, 0, 0);
+        return {x: effectiveX, y: effectiveY};
     },
+
 
     resetMap: () => {
         if (window.mapTools.ctx && window.mapTools.originalImageData) {

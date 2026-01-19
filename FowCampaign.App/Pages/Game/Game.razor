@@ -219,11 +219,6 @@
     private bool _loadError;
     private bool _mapRendered;
 
-    private string GetFactionColor(string factionName)
-    {
-        return _state?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000";
-    }
-
     protected override async Task OnInitializedAsync()
     {
         try
@@ -252,6 +247,11 @@
         }
     }
 
+    private string GetFactionColor(string factionName)
+    {
+        return _state?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!_isLoading && !_loadError && !_mapRendered && _gameData != null)
@@ -261,12 +261,12 @@
             try
             {
                 await JS.InvokeVoidAsync("mapTools.initMap", "gameCanvas", _gameData.MapImageBase64);
-                await Task.Delay(100);
-
+             
                 if (_state != null)
                 {
                     foreach (var zone in _state.Zones)
                     {
+                        Console.WriteLine("Dupa");
                         var f = _state.Factions.FirstOrDefault(fn => fn.Name == zone.FactionName);
                         if (f != null) await JS.InvokeVoidAsync("mapTools.floodFillRaw", (int)zone.X, (int)zone.Y, f.Color);
                     }
@@ -278,6 +278,7 @@
             }
         }
     }
+
 
     private void StartDrag(UnitDto unit)
     {
