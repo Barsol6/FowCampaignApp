@@ -1,51 +1,53 @@
-﻿    @page "/home"
-    @using FowCampaign.Api.DTO    @using FowCampaign.App.DTO
-    @using FowCampaign.App.Shared
+﻿@page "/home"
+@using FowCampaign.Api.DTO
+@using FowCampaign.App.DTO
+@using FowCampaign.App.Shared
 
-    
-    @attribute [Authorize]
-    @layout HomeLayout
 
-    @inject HttpClient Http
-    
-    <PaperSheet @ref="_paper">
-        <div class="war-room-layout">
-            <div class="top-nav">
-                <div class="nav-brand">CAMPAIGN COMMAND</div>
-                <div style="display:flex; gap:10px;">
+@attribute [Authorize]
+@layout HomeLayout
+
+@inject HttpClient Http
+
+<PaperSheet @ref="_paper">
+    <div class="war-room-layout">
+        <div class="top-nav">
+            <div class="nav-brand">CAMPAIGN COMMAND</div>
+            <div style="display:flex; gap:10px;">
                     <span style="color:#aaa; padding: 5px;">
                         OPERATOR: @(_username)
                     </span>
-                    <button class="logButton" @onclick="LogOutUser">LEAVE ROOM</button>
-                </div>
+                <button class="logButton" @onclick="LogOutUser">LEAVE ROOM</button>
             </div>
+        </div>
 
-            <div class="map-table-surface">
+        <div class="map-table-surface">
 
-                <h2 style="text-align:center; color: #fff; opacity: 0.8; font-family: 'Black Ops One'; letter-spacing: 2px;">
-                    AVAILABLE DOSSIERS
-                </h2>
+            <h2 style="text-align:center; color: #fff; opacity: 0.8; font-family: 'Black Ops One'; letter-spacing: 2px;">
+                AVAILABLE DOSSIERS
+            </h2>
 
-                <div class="desk-surface">
+            <div class="desk-surface">
 
-                    <div class="folder new-campaign-sheet" @onclick="CreateNewCampaign">
-                        <div style="font-size: 3rem; color: #555;">+</div>
-                        <div>NEW OPERATION</div>
-                    </div>
+                <div class="folder new-campaign-sheet" @onclick="CreateNewCampaign">
+                    <div style="font-size: 3rem; color: #555;">+</div>
+                    <div>NEW OPERATION</div>
+                </div>
 
-                    <div class="folder new-campaign-sheet" @onclick="ShowJoinModal" style="border-color: #333;">
-                        <div style="font-size: 3rem; color: #333;">★</div>
-                        <div>JOIN OPERATION</div>
-                    </div>
+                <div class="folder new-campaign-sheet" @onclick="ShowJoinModal" style="border-color: #333;">
+                    <div style="font-size: 3rem; color: #333;">★</div>
+                    <div>JOIN OPERATION</div>
+                </div>
 
-                    @if (_campaigns == null)
+                @if (_campaigns == null)
+                {
+                    <div style="color:white;">Retrieving files from archives...</div>
+                }
+                else
+                {
+                    @foreach (var camp in _campaigns)
                     {
-                        <div style="color:white;">Retrieving files from archives...</div>
-                    }
-                    else
-                    {
-                        @foreach (var camp in _campaigns)
-                        {
+                        <div class="campaign-item-wrapper @(_burningCampaigns.Contains(camp.Id)? " burning-effect":"")">
                             <div class="folder" @onclick="@(() => OpenCampaign(camp.Id))">
                                 <div class="folder-stamp">TOP SECRET</div>
 
@@ -61,173 +63,198 @@
                                 <div style="font-size:0.7rem;">
                                     DATE: @camp.LastPlayed.ToShortDateString()
                                 </div>
+
+                                <div class="btn-delete-campaign" @onclick="() => DeleteCampaign(camp.Id)"
+                                     @onclick:stopPropagation="true">>
+                                    [ BURN FILE ]
+                                </div>
                             </div>
-                        }
+                        </div>
                     }
+                }
 
-                </div>
+            </div>
 
+        </div>
+    </div>
+
+    @if (_showJoinModal)
+    {
+        <div class="modal-overlay">
+            <div class="modal-paper">
+                <h3 style="margin-top:0; border-bottom: 2px solid #333;">
+                    @(_joinStep == 1 ? "ENTER ACCESS CODE" : "SELECT ALLEGIANCE")
+                </h3>
+
+                @if (_joinStep == 1)
+                {
+                    <input @bind="_joinCode" @bind:event="oninput" placeholder="ex. A1B2C3"
+                           style="width: 100%; font-size: 1.5rem; text-align: center; margin: 20px 0; padding: 10px; border: 2px dashed #333; background: transparent; font-family: 'Black Ops One'; text-transform: uppercase;"/>
+
+                    <div style="display:flex; gap: 10px; justify-content: center;">
+                        <button class="logButton" style="background:#8b0000; width: auto;"
+                                @onclick="CloseModal">CANCEL
+                        </button>
+                        <button class="logButton" style="background:#2ecc71; width: auto;"
+                                @onclick="LookupCampaign">SEARCH
+                        </button>
+                    </div>
+                }
+
+                @if (_joinStep == 2)
+                {
+                    <p>Operation: <strong>@_foundCampaignName</strong></p>
+                    <p style="font-size:0.8rem;">Choose your command:</p>
+
+                    <div style="display:flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
+                        @foreach (var faction in _foundFactions)
+                        {
+                            var selectedFaction = faction;
+
+                            <button class="logButton" style="background: #333; color: #fff;"
+                                    @onclick="@(() => SubmitJoin(selectedFaction))">
+                                JOIN AS @selectedFaction.ToUpper()
+                            </button>
+                        }
+                    </div>
+
+                    <button class="logButton" style="background:#8b0000; font-size: 0.8rem; padding: 5px;"
+                            @onclick="() => { _joinStep = 1; }">
+                        &lt; BACK
+                    </button>
+                }
+
+                @if (!string.IsNullOrEmpty(_joinError))
+                {
+                    <div style="color:red; font-weight:bold; margin-top:10px;">@_joinError</div>
+                }
             </div>
         </div>
+    }
+</PaperSheet>
 
-        @if (_showJoinModal)
+@code {
+    private PaperSheet _paper;
+    private List<CampaignDto> _campaigns;
+    private string _username;
+
+    private bool _showJoinModal;
+    private int _joinStep = 1;
+    private string _joinCode = "";
+    private string _joinError = "";
+    private string _foundCampaignName;
+    private List<string> _foundFactions = new();
+    private HashSet<int> _burningCampaigns = new();
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
         {
-            <div class="modal-overlay">
-                <div class="modal-paper">
-                    <h3 style="margin-top:0; border-bottom: 2px solid #333;">
-                        @(_joinStep == 1 ? "ENTER ACCESS CODE" : "SELECT ALLEGIANCE")
-                    </h3>
-
-                    @if (_joinStep == 1)
-                    {
-                        <input @bind="_joinCode" @bind:event="oninput" placeholder="ex. A1B2C3"
-                               style="width: 100%; font-size: 1.5rem; text-align: center; margin: 20px 0; padding: 10px; border: 2px dashed #333; background: transparent; font-family: 'Black Ops One'; text-transform: uppercase;"/>
-
-                        <div style="display:flex; gap: 10px; justify-content: center;">
-                            <button class="logButton" style="background:#8b0000; width: auto;"
-                                    @onclick="CloseModal">CANCEL
-                            </button>
-                            <button class="logButton" style="background:#2ecc71; width: auto;"
-                                    @onclick="LookupCampaign">SEARCH
-                            </button>
-                        </div>
-                    }
-
-                    @if (_joinStep == 2)
-                    {
-                        <p>Operation: <strong>@_foundCampaignName</strong></p>
-                        <p style="font-size:0.8rem;">Choose your command:</p>
-
-                        <div style="display:flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
-                            @foreach (var faction in _foundFactions)
-                            {
-                                var selectedFaction = faction;
-
-                                <button class="logButton" style="background: #333; color: #fff;"
-                                        @onclick="@(() => SubmitJoin(selectedFaction))">
-                                    JOIN AS @selectedFaction.ToUpper()
-                                </button>
-                            }
-                        </div>
-
-                        <button class="logButton" style="background:#8b0000; font-size: 0.8rem; padding: 5px;"
-                                @onclick="() => { _joinStep = 1; }">
-                            &lt; BACK
-                        </button>
-                    }
-
-                    @if (!string.IsNullOrEmpty(_joinError))
-                    {
-                        <div style="color:red; font-weight:bold; margin-top:10px;">@_joinError</div>
-                    }
-                </div>
-            </div>
-        }
-    </PaperSheet>
-
-    @code {
-        private PaperSheet _paper;
-        private List<CampaignDto> _campaigns;
-        private string _username;
-
-        private bool _showJoinModal;
-        private int _joinStep = 1;
-        private string _joinCode = "";
-        private string _joinError = "";
-        private string _foundCampaignName;
-        private List<string> _foundFactions = new();
-
-        protected override Task OnAfterRenderAsync(bool firstRender)
-        {
-            if (firstRender)
-            {
-                StateHasChanged();
-            }
-            return base.OnAfterRenderAsync(firstRender);
+            StateHasChanged();
         }
 
-        protected override async Task OnInitializedAsync()
-        {
-            var authState = await Http.GetFromJsonAsync<UserSessionDto>("api/User/me");
-            _username = authState?.Username;
+        return base.OnAfterRenderAsync(firstRender);
+    }
 
-            try
-            {
-                _campaigns = await Http.GetFromJsonAsync<List<CampaignDto>>("api/Campaign/GetCampaigns");
-            }
-            catch
-            {
-                _campaigns = new List<CampaignDto>();
-            }
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await Http.GetFromJsonAsync<UserSessionDto>("api/User/me");
+        _username = authState?.Username;
+
+        try
+        {
+            _campaigns = await Http.GetFromJsonAsync<List<CampaignDto>>("api/Campaign/GetCampaigns");
         }
-
-        private async Task LogOutUser()
+        catch
         {
-            await Http.PostAsync("api/User/logout", null);
-            await _paper.TossAndNavigate("/login");
-        }
-
-        private async Task CreateNewCampaign()
-        {
-            await _paper.TossAndNavigate("/campaigncreator");
-        }
-
-        private async Task OpenCampaign(int campaignId)
-        {
-            await _paper.TossAndNavigate($"/game/{campaignId}");
-        }
-
-        private async Task ShowJoinModal()
-        {
-            _showJoinModal = true;
-        }
-
-        private async Task CloseModal()
-        {
-            _showJoinModal = false;
-            _joinStep = 1;
-            _joinCode = "";
-            _joinError = "";
-        }
-
-        private async Task LookupCampaign()
-        {
-            Console.WriteLine(_joinCode);
-            if (string.IsNullOrWhiteSpace(_joinCode)) return;
-            _joinError = "";
-            var response = await Http.GetAsync($"api/Campaign/lookup/{_joinCode}");
-            if (response.IsSuccessStatusCode)
-            {
-             
-                var result = await response.Content.ReadFromJsonAsync<CampaignPreviewDto>();
-                Console.WriteLine(result.ToString());
-                _foundCampaignName = result.Name;
-                _foundFactions = result.Factions;
-                _joinStep = 2;
-                StateHasChanged();
-            }
-            else
-            {
-                _joinError = "Operation not found.";
-            }
-        }
-
-        private async Task SubmitJoin(string factionName)
-        {
-            _joinError = "Enlisting...";
-
-            var request = new JoinRequestDto { JoinCode = _joinCode, FactionName = factionName };
-            var response = await Http.PostAsJsonAsync("api/Campaign/join", request);
-            if (response.IsSuccessStatusCode)
-            {
-                var result = new JoinResult();
-                   result = await response.Content.ReadFromJsonAsync<JoinResult>();
-                await CloseModal();
-                await _paper.TossAndNavigate($"/game/{result.campaignId}");
-            }
-            else
-            {
-                _joinError = "Failed to join. Try again.";
-            }
+            _campaigns = new List<CampaignDto>();
         }
     }
+
+    private async Task LogOutUser()
+    {
+        await Http.PostAsync("api/User/logout", null);
+        await _paper.TossAndNavigate("/login");
+    }
+
+    private async Task CreateNewCampaign()
+    {
+        await _paper.TossAndNavigate("/campaigncreator");
+    }
+
+    private async Task OpenCampaign(int campaignId)
+    {
+        await _paper.TossAndNavigate($"/game/{campaignId}");
+    }
+
+    private async Task ShowJoinModal()
+    {
+        _showJoinModal = true;
+    }
+
+    private async Task CloseModal()
+    {
+        _showJoinModal = false;
+        _joinStep = 1;
+        _joinCode = "";
+        _joinError = "";
+    }
+
+    private async Task LookupCampaign()
+    {
+        Console.WriteLine(_joinCode);
+        if (string.IsNullOrWhiteSpace(_joinCode)) return;
+        _joinError = "";
+        var response = await Http.GetAsync($"api/Campaign/lookup/{_joinCode}");
+        if (response.IsSuccessStatusCode)
+        {
+            var result = await response.Content.ReadFromJsonAsync<CampaignPreviewDto>();
+            Console.WriteLine(result.ToString());
+            _foundCampaignName = result.Name;
+            _foundFactions = result.Factions;
+            _joinStep = 2;
+            StateHasChanged();
+        }
+        else
+        {
+            _joinError = "Operation not found.";
+        }
+    }
+
+    private async Task SubmitJoin(string factionName)
+    {
+        _joinError = "Enlisting...";
+
+        var request = new JoinRequestDto { JoinCode = _joinCode, FactionName = factionName };
+        var response = await Http.PostAsJsonAsync("api/Campaign/join", request);
+        if (response.IsSuccessStatusCode)
+        {
+            var result = new JoinResult();
+            result = await response.Content.ReadFromJsonAsync<JoinResult>();
+            await CloseModal();
+            await _paper.TossAndNavigate($"/game/{result.campaignId}");
+        }
+        else
+        {
+            _joinError = "Failed to join. Try again.";
+        }
+    }
+
+    private async Task DeleteCampaign(int campaignId)
+    {
+        _burningCampaigns.Add(campaignId);
+        StateHasChanged();
+
+        await Task.Delay(1500);
+        var response = await Http.DeleteAsync($"api/Campaign/delete/{campaignId}");
+        if (response.IsSuccessStatusCode)
+        {
+            _campaigns = _campaigns.Where(c => c.Id != campaignId).ToList();
+            StateHasChanged();
+        }
+
+        _burningCampaigns.Remove(campaignId);
+        StateHasChanged();
+    }
+
+}

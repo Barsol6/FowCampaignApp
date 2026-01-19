@@ -244,4 +244,21 @@ public class CampaignController : ControllerBase
             Factions = factionNames
         });
     }
+
+
+    [HttpDelete("delete/{id}")]
+    [Authorize]
+    public async Task<IActionResult> DeleteCampaign(int id)
+    {
+        var username = User.Identity?.Name;
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        if (user == null) return Unauthorized();
+        
+        var campaign = await _context.Campaigns.FirstOrDefaultAsync(c => c.Id == id);
+        if (campaign == null) return NotFound("Campaign Not Found");
+        if (campaign.OwnerId != user.Id) return Forbid("Only the campaign owner can delete the campaign.");
+        _context.Campaigns.Remove(campaign);
+        await _context.SaveChangesAsync();
+        return Ok(new { message = "Campaign Deleted" });
+    }
 }
