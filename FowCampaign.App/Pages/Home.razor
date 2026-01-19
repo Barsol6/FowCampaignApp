@@ -202,14 +202,12 @@
 
     private async Task LookupCampaign()
     {
-        Console.WriteLine(_joinCode);
         if (string.IsNullOrWhiteSpace(_joinCode)) return;
         _joinError = "";
         var response = await Http.GetAsync($"api/Campaign/lookup/{_joinCode}");
         if (response.IsSuccessStatusCode)
         {
             var result = await response.Content.ReadFromJsonAsync<CampaignPreviewDto>();
-            Console.WriteLine(result.ToString());
             _foundCampaignName = result.Name;
             _foundFactions = result.Factions;
             _joinStep = 2;
