@@ -9,7 +9,6 @@
 @inject NavigationManager NavigationManager
 @inject LoginDto User
 
-
 <div class="container">
     <PaperSheet @ref="_paper">
         <div class="signInPanel">
@@ -19,6 +18,13 @@
             </div>
 
             <div class="login">
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <div class="error-box">
+                        ⚠ @_errorMessage
+                    </div>
+                }
 
                 <div class="data-box">
                     <input type="text" @bind="User.Username" @onkeydown="Enter" placeholder="CODENAME" required/>
@@ -51,10 +57,24 @@
     </PaperSheet>
 </div>
 
-
+<style>
+    .error-box {
+        color: #d32f2f;
+        background-color: #fdecea;
+        border: 1px solid #d32f2f;
+        padding: 10px;
+        margin-bottom: 15px;
+        text-align: center;
+        font-weight: bold;
+        font-size: 0.9rem;
+        border-radius: 4px;
+        text-transform: uppercase;
+    }
+</style>
 
 @code {
     private PaperSheet _paper;
+    private string _errorMessage = "";
 
     [Parameter] public string UserName { get; set; }
 
@@ -68,7 +88,15 @@
 
     private async Task HandleUserLogin()
     {
-        if (User.Username != string.Empty && User.Password != string.Empty)
+        _errorMessage = "";
+
+        if (string.IsNullOrWhiteSpace(User.Username) || string.IsNullOrWhiteSpace(User.Password))
+        {
+            _errorMessage = "Codename and Password are required.";
+            return;
+        }
+
+        try 
         {
             var response = await Http.PostAsJsonAsync("api/User/login", User);
 
@@ -82,7 +110,17 @@
             }
             else if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
+                _errorMessage = "Access Denied: Invalid Credentials.";
             }
+            else
+            {
+                _errorMessage = "Communication Error. Secure line failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Network unavailable.";
+            Console.WriteLine(ex.Message);
         }
     }
 
@@ -90,6 +128,4 @@
     {
         await _paper.TossAndNavigate("/register");
     }
-
-
 }

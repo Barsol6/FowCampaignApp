@@ -266,9 +266,8 @@
                 {
                     foreach (var zone in _state.Zones)
                     {
-                        Console.WriteLine("Dupa");
                         var f = _state.Factions.FirstOrDefault(fn => fn.Name == zone.FactionName);
-                        if (f != null) await JS.InvokeVoidAsync("mapTools.floodFillRaw", (int)zone.X, (int)zone.Y, f.Color);
+                        if (f != null) await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, f.Color);
                     }
                 }
             }
