@@ -41,14 +41,27 @@
                 <InputFile OnChange="HandleImageUpload" style="display: none;" accept="image/*"/>
             </label>
 
-            <button class="logButton" @onclick="SaveCampaign" disabled="@(!IsReadyToSave)">
+            <button class="logButton" @onclick="SaveCampaign" disabled="@(MissingRequirements.Any())">
                 CONFIRM & DEPLOY
             </button>
         </div>
 
+        @if (MissingRequirements.Any())
+        {
+            <div style="margin-bottom: 20px; padding: 10px; background-color: #fff3cd; border: 1px solid #ffeeba; border-left: 5px solid #ffc107; color: #856404; font-family: 'Courier New'; font-size: 0.9rem;">
+                <strong>DEPLOYMENT HALTED - MISSING INTEL:</strong>
+                <ul style="margin: 5px 0 0 20px; padding: 0;">
+                    @foreach (var req in MissingRequirements)
+                    {
+                        <li>@req</li>
+                    }
+                </ul>
+            </div>
+        }
+
         @if (!string.IsNullOrEmpty(_errorMessage))
         {
-            <div style="color:red; text-align:center; font-weight:bold;">@_errorMessage</div>
+            <div style="color:red; text-align:center; font-weight:bold; margin-bottom: 10px;">@_errorMessage</div>
         }
     </div>
 
@@ -244,6 +257,20 @@
 
     private bool _shouldRenderMap;
 
+    private List<string> MissingRequirements
+    {
+        get
+        {
+            var list = new List<string>();
+            if (string.IsNullOrWhiteSpace(_model.Name)) list.Add("Operation Codename is missing.");
+            if (!_hasMap) list.Add("Tactical Map must be uploaded.");
+            if (_model.Factions.Count < 2) list.Add($"At least 2 Factions required (Current: {_model.Factions.Count}).");
+            if (_myFaction == null) list.Add("Select your Faction to COMMAND (Checkbox).");
+            if (_startingFaction == null) list.Add("Select Faction for 1ST TURN (Checkbox).");
+            return list;
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_shouldRenderMap)
@@ -252,10 +279,7 @@
             await JsRuntime.InvokeVoidAsync("mapTools.initMap", "mapCanvas", _imageDataUrl);
         }
     }
-
-
-    private bool IsReadyToSave => !string.IsNullOrEmpty(_model.Name) && _hasMap && _myFaction != null && _model.Factions.Count >= 2;
-
+    
     private async Task HandleImageUpload(InputFileChangeEventArgs e)
     {
         var file = e.File;
@@ -364,9 +388,8 @@
 
     private async Task SaveCampaign()
     {
-        if (_myFaction == null)
+        if (MissingRequirements.Any())
         {
-            _errorMessage = "You must select a faction to command!";
             return;
         }
 

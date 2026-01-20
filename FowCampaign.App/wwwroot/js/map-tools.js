@@ -33,10 +33,10 @@
                 resolve();
             };
 
-          
+
             img.onerror = (err) => {
                 console.error("Failed to load map image.", err);
-                resolve(); 
+                resolve();
             };
 
             img.src = imageSrc;
@@ -244,16 +244,22 @@
         const fillRgb = {r, g, b, a: 255};
 
         const startIdx = (effectiveY * width + effectiveX) * 4;
-        const startR = originalData[startIdx];
-        const startG = originalData[startIdx + 1];
-        const startB = originalData[startIdx + 2];
+        let startR = originalData[startIdx];
+        let startG = originalData[startIdx + 1];
+        let startB = originalData[startIdx + 2];
+
+        if (startR > 200 && startG > 200 && startB > 200) {
+            startR = 255;
+            startG = 255;
+            startB = 255;
+        }
 
         const colorsMatch = (idx) => {
             const or = originalData[idx];
             const og = originalData[idx+1];
             const ob = originalData[idx+2];
             const diff = Math.abs(or - startR) + Math.abs(og - startG) + Math.abs(ob - startB);
-            return diff < 100;
+            return diff < 130;
         };
 
         const queue = [[effectiveX, effectiveY]];
