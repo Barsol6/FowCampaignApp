@@ -1,3 +1,5 @@
+#region
+
 using System.Text;
 using FluentValidation;
 using FowCampaign.Api.Modules.Account;
@@ -7,6 +9,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
+
+#endregion
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,7 +20,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
     {
-        options.SwaggerDoc("v1", new Microsoft.OpenApi.OpenApiInfo { Title = "FowCampaign.Api", Version = "v1" });
+        options.SwaggerDoc("v1", new OpenApiInfo { Title = "FowCampaign.Api", Version = "v1" });
     }
 );
 

@@ -1,4 +1,8 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
+﻿#region
+
+using System.ComponentModel.DataAnnotations.Schema;
+
+#endregion
 
 namespace FowCampaign.Api.Modules.Database.Entities.Map;
 

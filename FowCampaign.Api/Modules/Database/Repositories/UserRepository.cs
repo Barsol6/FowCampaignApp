@@ -1,5 +1,9 @@
-﻿using FowCampaign.Api.Modules.Database.Entities.User;
+﻿#region
+
+using FowCampaign.Api.Modules.Database.Entities.User;
 using Microsoft.EntityFrameworkCore;
+
+#endregion
 
 namespace FowCampaign.Api.Modules.Database.Repositories;
 

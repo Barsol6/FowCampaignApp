@@ -2,13 +2,7 @@
 @using System.Net.Http.Headers
 @using System.Text.Json
 @using FowCampaign.App.DTO
-@using FowCampaign.App.Layout
 @using FowCampaign.App.Shared
-@using Microsoft.AspNetCore.Authorization
-@using Microsoft.AspNetCore.Components.Forms
-@using Microsoft.AspNetCore.Components.Web
-@using Microsoft.AspNetCore.Components.WebAssembly.Http
-@using Microsoft.JSInterop
 
 @attribute [Authorize]
 @layout HomeLayout
@@ -48,7 +42,8 @@
 
         @if (MissingRequirements.Any())
         {
-            <div style="margin-bottom: 20px; padding: 10px; background-color: #fff3cd; border: 1px solid #ffeeba; border-left: 5px solid #ffc107; color: #856404; font-family: 'Courier New'; font-size: 0.9rem;">
+            <div
+                style="margin-bottom: 20px; padding: 10px; background-color: #fff3cd; border: 1px solid #ffeeba; border-left: 5px solid #ffc107; color: #856404; font-family: 'Courier New'; font-size: 0.9rem;">
                 <strong>DEPLOYMENT HALTED - MISSING INTEL:</strong>
                 <ul style="margin: 5px 0 0 20px; padding: 0;">
                     @foreach (var req in MissingRequirements)
@@ -279,7 +274,7 @@
             await JsRuntime.InvokeVoidAsync("mapTools.initMap", "mapCanvas", _imageDataUrl);
         }
     }
-    
+
     private async Task HandleImageUpload(InputFileChangeEventArgs e)
     {
         var file = e.File;
@@ -338,12 +333,12 @@
                         Label = l,
                         Distance = Math.Sqrt(Math.Pow(l.X - realCoords.X, 2) + Math.Pow(l.Y - realCoords.Y, 2))
                     })
-                    .Where(x => x.Distance < 1500) 
+                    .Where(x => x.Distance < 1500)
                     .OrderBy(x => x.Distance)
                     .FirstOrDefault();
 
-                _regionName = !string.IsNullOrWhiteSpace(closestLabel?.Label.Text) 
-                    ? closestLabel.Label.Text 
+                _regionName = !string.IsNullOrWhiteSpace(closestLabel?.Label.Text)
+                    ? closestLabel.Label.Text
                     : "UNKNOWN SECTOR";
 
                 var nearbyExistingZone = _recordedZones
@@ -381,6 +376,7 @@
             });
         }
     }
+
     private async Task ResetMap()
     {
         await JsRuntime.InvokeVoidAsync("mapTools.resetMap");
@@ -497,7 +493,7 @@
 
     private async Task AddFaction()
     {
-        if (_factionName == String.Empty)
+        if (_factionName == string.Empty)
         {
             return;
         }
@@ -516,7 +512,7 @@
 
         _model.Factions.Add(newFaction);
 
-        _factionName = String.Empty;
+        _factionName = string.Empty;
         _factionColor = "#000000";
 
         if (_model.Factions.Count == 1)

@@ -1,7 +1,11 @@
-﻿using FowCampaign.Api.Modules.Database.Entities.User;
+﻿#region
+
+using FowCampaign.Api.Modules.Database.Entities.User;
 using FowCampaign.Api.Modules.Database.Repositories;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
+
+#endregion
 
 namespace FowCampaign.Api.Modules.Account;
 

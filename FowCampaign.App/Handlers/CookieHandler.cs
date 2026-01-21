@@ -1,4 +1,8 @@
-﻿using Microsoft.AspNetCore.Components.WebAssembly.Http;
+﻿#region
+
+using Microsoft.AspNetCore.Components.WebAssembly.Http;
+
+#endregion
 
 namespace FowCampaign.App.Handlers;
 

@@ -1,10 +1,10 @@
 ﻿@inject IJSRuntime JSRuntime
 @inject NavigationManager NavigationManager
 
-<div class="paper-sheet-container" @ref="_paperRef" >
-    <div class="paper-sheet-visual" >
+<div class="paper-sheet-container" @ref="_paperRef">
+    <div class="paper-sheet-visual">
         @ChildContent
-    </div> 
+    </div>
 </div>
 
 
@@ -13,7 +13,7 @@
 
     private ElementReference _paperRef;
     private IJSObjectReference? _module;
-    
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
@@ -27,8 +27,7 @@
 
     public async Task TossAndNavigate(string url)
     {
-
-        if (_module!= null)
+        if (_module != null)
         {
             await _module.InvokeVoidAsync("tossOut", _paperRef);
         }

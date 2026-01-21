@@ -1,4 +1,6 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+﻿#region
+
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using FluentValidation;
@@ -9,14 +11,16 @@ using FowCampaign.Api.Modules.Database.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 
+#endregion
+
 namespace FowCampaign.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 public class UserController(
-    IUserRepository userRepository, 
-    PasswordHash passwordHash, 
-    IConfiguration configuration, 
+    IUserRepository userRepository,
+    PasswordHash passwordHash,
+    IConfiguration configuration,
     IValidator<RegisterDto> validator
 ) : ControllerBase
 {
@@ -24,12 +28,9 @@ public class UserController(
     public async Task<IActionResult> Register([FromBody] RegisterDto user)
     {
         var validationResult = await validator.ValidateAsync(user);
-        
-        if (!validationResult.IsValid) 
-        {
-            return BadRequest(validationResult.Errors);
-        }
-        
+
+        if (!validationResult.IsValid) return BadRequest(validationResult.Errors);
+
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
         if (await userRepository.CheckIfExistsAsync(user.Username))
@@ -40,7 +41,7 @@ public class UserController(
         var newUser = new User
         {
             Username = user.Username,
-            Password = hashedPassword,
+            Password = hashedPassword
         };
 
         await userRepository.AddUserAsync(newUser);
@@ -112,7 +113,7 @@ public class UserController(
         };
 
         var token = new JwtSecurityToken(
-            configuration["Jwt:Issuer"], 
+            configuration["Jwt:Issuer"],
             configuration["Jwt:Audience"],
             claims,
             expires: DateTime.Now.AddHours(24),

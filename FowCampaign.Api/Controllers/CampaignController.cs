@@ -1,4 +1,6 @@
-﻿using System.Text.Json;
+﻿#region
+
+using System.Text.Json;
 using FowCampaign.Api.DTO;
 using FowCampaign.Api.Modules.Database;
 using FowCampaign.Api.Modules.Database.Entities.Campaign;
@@ -7,6 +9,8 @@ using FowCampaign.App.DTO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+
+#endregion
 
 namespace FowCampaign.Api.Controllers;
 
@@ -23,7 +27,7 @@ public class CampaignController : ControllerBase
     }
 
 
-    [HttpPost ("create")]
+    [HttpPost("create")]
     public async Task<IActionResult> CreateCampaign([FromForm] CreateCampaignDto request)
     {
         var nameClaim = User.Identity?.Name;
@@ -218,7 +222,7 @@ public class CampaignController : ControllerBase
             IsTurn = true
         });
         await _context.SaveChangesAsync();
-        return Ok(new JoinResult{ campaignId = campaign.Id, message = "Welcome to the campaign, Commander." });
+        return Ok(new JoinResult { campaignId = campaign.Id, message = "Welcome to the campaign, Commander." });
     }
 
     [HttpGet("lookup/{code}")]
@@ -253,7 +257,7 @@ public class CampaignController : ControllerBase
         var username = User.Identity?.Name;
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
         if (user == null) return Unauthorized();
-        
+
         var campaign = await _context.Campaigns.FirstOrDefaultAsync(c => c.Id == id);
         if (campaign == null) return NotFound("Campaign Not Found");
         if (campaign.OwnerId != user.Id) return Forbid("Only the campaign owner can delete the campaign.");

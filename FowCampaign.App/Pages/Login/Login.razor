@@ -1,10 +1,8 @@
 ﻿@page "/login"
 @page "/"
 @using System.Net
-@using System.Net.Http.Json
 @using FowCampaign.App.DTO
 @using FowCampaign.App.Shared
-@using Microsoft.AspNetCore.Components.Web
 @inject HttpClient Http
 @inject NavigationManager NavigationManager
 @inject LoginDto User
@@ -96,7 +94,7 @@
             return;
         }
 
-        try 
+        try
         {
             var response = await Http.PostAsJsonAsync("api/User/login", User);
 
@@ -128,4 +126,5 @@
     {
         await _paper.TossAndNavigate("/register");
     }
+
 }

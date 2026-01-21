@@ -1,6 +1,10 @@
-﻿using FowCampaign.Api.Modules.Database.Entities.User;
+﻿#region
+
+using FowCampaign.Api.Modules.Database.Entities.User;
 using FowCampaign.Api.Modules.Database.Repositories;
 using Microsoft.AspNetCore.Components;
+
+#endregion
 
 namespace FowCampaign.Api.Modules.Account;
 
@@ -35,7 +39,7 @@ public class SignUp
         var user = new User
         {
             Username = username,
-            Password = password,
+            Password = password
         };
 
         await UserRepository.AddUserAsync(user);

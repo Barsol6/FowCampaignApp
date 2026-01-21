@@ -1,8 +1,12 @@
-﻿using System.Net.Http.Json;
+﻿#region
+
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using FowCampaign.App.DTO;
 using Microsoft.AspNetCore.Components.Authorization;
+
+#endregion
 
 namespace FowCampaign.App.Providers;
 
@@ -16,6 +20,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     };
 
     private AuthenticationState? _cachedAuthenticationState;
+
     public CustomAuthStateProvider(HttpClient httpClient)
     {
         _httpClient = httpClient;
@@ -23,11 +28,8 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
 
     public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
-        if (_cachedAuthenticationState != null)
-        {
-            return _cachedAuthenticationState;
-        }
-        
+        if (_cachedAuthenticationState != null) return _cachedAuthenticationState;
+
         try
         {
             var response = await _httpClient.GetAsync("api/User/me");
@@ -44,7 +46,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
 
                     var identity = new ClaimsIdentity(claims, "Cookies");
                     var user = new ClaimsPrincipal(identity);
-                    
+
                     _cachedAuthenticationState = new AuthenticationState(user);
 
                     return _cachedAuthenticationState;
@@ -55,7 +57,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         {
             Console.WriteLine(e);
         }
-        
+
         _cachedAuthenticationState = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
 
         return _cachedAuthenticationState;
@@ -65,13 +67,13 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     {
         NotifyAuthenticationStateChanged(GetAuthenticationStateAsync());
     }
-    
+
     public void NotifyLogOut()
     {
         _cachedAuthenticationState = null;
 
         var anonymousState = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
-        
+
         NotifyAuthenticationStateChanged(Task.FromResult(anonymousState));
     }
 }

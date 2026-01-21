@@ -1,6 +1,4 @@
 ﻿@inject HttpClient Http
-
-@using System.Net.Http.Json
 @using FowCampaign.App.DTO
 @inherits LayoutComponentBase
 
@@ -19,7 +17,6 @@
         try
         {
             var userState = await Http.GetFromJsonAsync<User>("api/User/me");
-            
         }
         catch (HttpRequestException)
         {

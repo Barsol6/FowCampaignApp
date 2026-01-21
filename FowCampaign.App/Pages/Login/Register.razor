@@ -1,9 +1,7 @@
 ﻿@page "/register"
 @using System.Net
-@using System.Net.Http.Json
 @using FowCampaign.App.DTO
 @using FowCampaign.App.Shared
-@using Microsoft.AspNetCore.Components.Web
 
 @inject HttpClient Http
 @inject NavigationManager NavigationManager
@@ -90,17 +88,17 @@
             _loginStatement = "REGISTRATION SUCCESSFUL";
             StateHasChanged();
             await Task.Delay(1000);
-            
+
             User.Username = string.Empty;
             User.Password = string.Empty;
             User.ConfirmPassword = string.Empty;
-            
+
             await _paper.TossAndNavigate("/login");
 
 
             StateHasChanged();
         }
-        else if(exists.StatusCode == HttpStatusCode.BadRequest)
+        else if (exists.StatusCode == HttpStatusCode.BadRequest)
         {
             var errors = await exists.Content.ReadFromJsonAsync<List<ValidationError>>();
             if (errors != null && errors.Count > 0)
