@@ -265,4 +265,51 @@ public class CampaignController : ControllerBase
         await _context.SaveChangesAsync();
         return Ok(new { message = "Campaign Deleted" });
     }
+
+    [HttpPost("{id}/battle")]
+    [Authorize]
+    public async Task<IActionResult> BattleResult(int id, [FromBody] BattleResultDto battleResultDto)
+    {
+        var username = User.Identity?.Name;
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        if (user == null) return Unauthorized();
+        
+        var campaign = await _context.Campaigns
+            .Include(c => c.Players)
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        if (campaign is null)
+        {
+            return NotFound("Campaign Not Found");
+        }
+        
+        var playerRecord = campaign.Players.FirstOrDefault(p => p.UserId == user.Id);
+        if (playerRecord is null)
+        {
+            return Unauthorized("You are not a member of this campaign");
+        }
+
+        var battleJson = JsonSerializer.Serialize(new
+        {
+            battleResultDto.MajorPoints,
+            battleResultDto.MinorPoints,
+            battleResultDto.EliminatedUnitInfo
+        });
+
+        var newLog = new BattleLog
+        {
+            CampaignId = campaign.Id,
+            ZoneName = battleResultDto.ZoneName,
+            TurnNumber = battleResultDto.TurnNumber,
+            ResultJson = battleJson,
+            CreatedAt = DateTime.UtcNow
+        };
+        
+        _context.BattleLogs.Add(newLog);
+        await _context.SaveChangesAsync();
+        
+        return Ok(new { message = "Battle logged successfully" });
+
+
+    }
 }

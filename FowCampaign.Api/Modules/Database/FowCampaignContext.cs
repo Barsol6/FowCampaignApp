@@ -19,6 +19,7 @@ public class FowCampaignContext : DbContext
     public DbSet<Territory> Territories { get; set; }
     public DbSet<Map> MapConfigs { get; set; }
     public DbSet<Campaign> Campaigns { get; set; }
+    public DbSet<BattleLog> BattleLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,6 +61,11 @@ public class FowCampaignContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.MapName).IsRequired().HasMaxLength(50);
+        });
+
+        modelBuilder.Entity<BattleLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
         });
 
         base.OnModelCreating(modelBuilder);

@@ -1068,3 +1068,76 @@ canvas {
 .btn-card-delete:hover {
     color: red;
 }
+
+.status-battle {
+    background-color: #3a1a1a;
+    border-left: 4px solid #bd2424;
+    color: #e04444;
+}
+
+.btn-battle {
+    background-color: #5a1a1a;
+    color: #e04444;
+    border: 1px solid #bd2424;
+    letter-spacing: 0.1em;
+}
+
+.btn-battle:hover {
+    background-color: #7a2424;
+}
+
+.battle-panel {
+    border-top: 2px solid #bd2424;
+    animation: fadeIn 0.2s ease-in;
+}
+
+.battle-faction-row {
+    margin: 10px 0;
+}
+
+.battle-faction-label {
+    font-weight: bold;
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+    letter-spacing: 0.08em;
+}
+
+.battle-points-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto 1fr;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.battle-points-label {
+    font-size: 0.72rem;
+    color: #888;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.battle-input {
+    text-align: center;
+    padding: 4px;
+}
+
+.battle-removal-section {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.battle-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+

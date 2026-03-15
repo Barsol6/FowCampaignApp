@@ -27,9 +27,10 @@ public class UserController(
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterDto user)
     {
-        var validationResult = await validator.ValidateAsync(user);
+        // validation is currently disabled as it is unnecessary now
+        /*var validationResult = await validator.ValidateAsync(user);
 
-        if (!validationResult.IsValid) return BadRequest(validationResult.Errors);
+        if (!validationResult.IsValid) return BadRequest(validationResult.Errors);*/
 
         if (!ModelState.IsValid) return BadRequest(ModelState);
 

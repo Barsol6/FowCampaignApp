@@ -94,8 +94,6 @@
             User.ConfirmPassword = string.Empty;
 
             await _paper.TossAndNavigate("/login");
-
-
             StateHasChanged();
         }
         else if (exists.StatusCode == HttpStatusCode.BadRequest)

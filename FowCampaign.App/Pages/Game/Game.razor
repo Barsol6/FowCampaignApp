@@ -80,9 +80,12 @@
 
                             var dragClass = canDrag ? "unit-draggable" : "unit-locked";
                             var pointerClass = _draggingUnit != null ? "pointer-events-none" : "";
+                            var leftPercent = (unit.X / _mapRealWidth) * 100.0;
+                            var topPercent = (unit.Y / _mapRealHeight) * 100.0;
 
                             var factionColor = GetFactionColor(unit.FactionName);
-                            var positionStyle = $"left: {unit.X}px; top: {unit.Y}px; border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";
+                            var positionStyle = $"left: {leftPercent.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}%; top: {topPercent.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}%; border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";
+
 
                             if (def != null)
                             {
@@ -90,7 +93,7 @@
                                      style="@positionStyle"
                                      @onmousedown="() => StartDrag(unit)"
                                      @onmousedown:stopPropagation="true">
-
+             
                                     <img src="@def.ImageBase64" style="width:100%; height:100%; object-fit:contain;"
                                          title="@def.Name"/>
                                 </div>
@@ -151,6 +154,72 @@
 
                 </div>
 
+                @if (_state?.CurrentTurnFaction == _gameData?.MyFactionName
+                && _turnPhase == TurnPhase.Planning
+                && _battleAvailable)
+                {
+                <div class="sidebar-section">
+                    <div class="status-box status-battle">
+                        <strong>⚔ CONTACT:</strong> @_battleZoneName
+                    </div>
+                    <button class="btn-full btn-battle" @onclick="openBattlePanel">
+                        INITIATE BATTLE
+                    </button>
+                </div>
+                }
+
+                @if (_showBattlePanel && _battleZone != null)
+                {
+                <div class="sidebar-section battle-panel">
+                    <h4 class="section-header">⚔ BATTLE — @(_battleZoneName.ToUpper())</h4>
+
+                    @foreach (var faction in _battleUnits.Select(u => u.FactionName).Distinct())
+                    {
+                    <div class="battle-faction-row">
+                        <div class="battle-faction-label"
+                             style="border-left: 3px solid @GetFactionColor(faction); padding-left: 6px;">
+                            @faction.ToUpper()
+                        </div>
+                        <div class="battle-points-row">
+                            <label class="battle-points-label">MAJOR VP</label>
+                            <input type="number" class="tactical-input battle-input" min="0"
+                                   value="@_majorPoints[faction]"
+                                   @onchange="e => _majorPoints[faction] = int.TryParse(e.Value?.ToString(), out var v) ? v : 0" />
+
+                            <label class="battle-points-label">MINOR VP</label>
+                            <input type="number" class="tactical-input battle-input" min="0"
+                                   value="@_minorPoints[faction]"
+                                   @onchange="e => _minorPoints[faction] = int.TryParse(e.Value?.ToString(), out var v) ? v : 0" />
+                        </div>
+                    </div>
+                    }
+
+                    <div class="battle-removal-section">
+                        <label class="battle-points-label">OPTIONAL — ELIMINATE UNIT</label>
+                        <select class="tactical-input" @bind="_unitToRemoveId">
+                            <option value="">— No Casualties —</option>
+                            @foreach (var u in _battleUnits)
+                            {
+                            var def = _state.UnitDefinitions.FirstOrDefault(d => d.Id == u.DefinitionId);
+                            <option value="@UnitUiKey(u)">
+                                [@u.FactionName] @(def?.Name ?? "Unknown Unit")
+                            </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="battle-actions">
+                        <button class="btn-full btn-abort" @onclick="() => _showBattlePanel = false">
+                            CANCEL
+                        </button>
+                        <button class="btn-full btn-confirm" @onclick="ConfirmBattleResults">
+                            ✔ CONFIRM BATTLE
+                        </button>
+                    </div>
+                </div>
+                }
+                
+
                 <div class="intel-table-container">
                     <h4 class="intel-header">TERRITORY CONTROL</h4>
 
@@ -201,6 +270,22 @@
     private GameStateDto _state;
     private UnitDto _draggingUnit;
     private bool _isProcessingMap = false;
+    private bool _battleAvailable;
+    private bool _showBattlePanel;
+    private string _battleZoneName;
+    private ZoneSeedDto _battleZone;
+    private List<UnitDto> _battleUnits = [];
+    private double _mapRealWidth = 1;  
+    private double _mapRealHeight = 1; 
+    private double _dragScaleFactor = 1.0;
+    
+    private Dictionary<string, int> _majorPoints = new();
+    private Dictionary<string, int> _minorPoints = new();
+    
+    private string _unitToRemoveId;
+    
+    private static string UnitUiKey(UnitDto u) => $"{u.FactionName}|{u.DefinitionId}|{u.X}|{u.Y}";
+    
 
     private enum TurnPhase
     {
@@ -242,7 +327,7 @@
         }
     }
 
-    private string GetFactionColor(string factionName)
+    private async Task<string> GetFactionColor(string factionName)
     {
         return _state?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
     }
@@ -255,8 +340,15 @@
 
             try
             {
-                await JS.InvokeVoidAsync("mapTools.initMap", "gameCanvas", _gameData.MapImageBase64);
+                var dims = await JS.InvokeAsync<MapDimensions>("mapTools.initMap", "gameCanvas", _gameData.MapImageBase64);
 
+                if (dims.Width > 0) 
+                {
+                    _mapRealWidth = dims.Width;
+                    _mapRealHeight = dims.Height;
+                    StateHasChanged(); 
+                }
+                
                 if (_state != null)
                 {
                     foreach (var zone in _state.Zones)
@@ -274,7 +366,7 @@
     }
 
 
-    private void StartDrag(UnitDto unit)
+    private async Task StartDrag(UnitDto unit)
     {
         if (_turnPhase != TurnPhase.Planning)
         {
@@ -285,21 +377,29 @@
             _state.CurrentTurnFaction == _gameData.MyFactionName)
         {
             _draggingUnit = unit;
+            
+            var visualDims = await JS.InvokeAsync<MapDimensions>("mapTools.getClientDimensions", "gameCanvas");
+            
+            if(visualDims.Width > 0)
+            {
+                _dragScaleFactor = _mapRealWidth / visualDims.Width;
+            }
         }
     }
 
-    private void HandleWrapperMouseMove(MouseEventArgs e)
+    private async Task HandleWrapperMouseMove(MouseEventArgs e)
     {
         if (_draggingUnit != null)
         {
-            _draggingUnit.X = e.OffsetX;
-            _draggingUnit.Y = e.OffsetY;
+            _draggingUnit.X = e.OffsetX * _dragScaleFactor;
+            _draggingUnit.Y = e.OffsetY * _dragScaleFactor;
         }
     }
 
-    private void HandleWrapperMouseUp()
+    private async Task HandleWrapperMouseUp()
     {
         _draggingUnit = null;
+        await RecalculateBattleAvailability();
     }
 
     private async Task SubmitTurn()
@@ -333,7 +433,7 @@
 
         try
         {
-            var realCoords = await JS.InvokeAsync<PaintCoord>(
+            var realCoords = await JS.InvokeAsync<CampaignCreator.PaintCoord>(
                 "mapTools.getSize",
                 e.OffsetX,
                 e.OffsetY
@@ -392,11 +492,122 @@
         }
     }
 
-    public class PaintCoord
+    private async Task RecalculateBattleAvailability()
     {
-        public double X { get; set; }
-        public double Y { get; set; }
+        _battleAvailable = false;
+        _battleZone = null;
+        _battleZoneName = string.Empty;
+        _battleUnits.Clear();
+
+        if (_state == null)
+        {
+            return;
+        }
+
+        foreach (var zone in _state.Zones)
+        {
+            var unitsInZone = _state.Units .Where(u =>
+                {
+                    var dx = u.X - zone.X;
+                    var dy = u.Y - zone.Y;
+                    return (dx * dx + dy * dy) < (80 * 80); 
+                })
+                .ToList();
+
+            var factions = unitsInZone.Select(u => u.FactionName)
+                .Where(f => !string.IsNullOrWhiteSpace(f))
+                .Distinct()
+                .ToList();
+
+            if (factions.Count >= 2)
+            {
+                _battleAvailable = true;
+                _battleZone = zone;
+                _battleZoneName = string.IsNullOrWhiteSpace(zone.Name) ? "Unknown Sector" : zone.Name;
+                _battleUnits = unitsInZone;
+                
+                _majorPoints.Clear();
+                _minorPoints.Clear();
+
+                foreach (var faction in factions)
+                {
+                    _majorPoints[faction] = 0;
+                    _minorPoints[faction] = 0;
+                }
+                return;
+            }
+        }
+        
+    }
+    
+    private async Task openBattlePanel()
+    {
+        if (_battleAvailable)
+        {
+            _showBattlePanel = true;
+        }
     }
 
+    private async Task RemoveSelectedUnitIfAny()
+    {
+        if (string.IsNullOrWhiteSpace(_unitToRemoveId) || _state == null)
+        {
+            return;
+        }
+        
+        var target = _state.Units.FirstOrDefault(u=> UnitUiKey(u) == _unitToRemoveId);
+        if (target != null)
+        {
+            _state.Units.Remove(target);
+        }
 
+        _unitToRemoveId = null;
+    }
+    
+    private async Task ConfirmBattleResults()
+    {       
+        if (_state == null || _battleZone == null)
+        {
+            return;
+        }
+        
+
+        var eliminatedIds = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_unitToRemoveId))
+        {
+            eliminatedIds.Add(_unitToRemoveId);
+        }
+
+        var dto = new BattleResultDto
+        {
+            ZoneName = _battleZoneName,
+            TurnNumber = _state.TurnNumber,
+            MajorPoints = _majorPoints,
+            MinorPoints = _minorPoints,
+            EliminatedUnitInfo = eliminatedIds
+        };
+        
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/battle", dto);
+        if (!response.IsSuccessStatusCode)
+            return;
+
+        await RemoveSelectedUnitIfAny();
+        _showBattlePanel = false;
+        await RecalculateBattleAvailability();
+        StateHasChanged();
+    }
+    public class MapDimensions 
+    {
+        public double Width { get; set;}
+        public double Height { get; set; } 
+    }
+    
+    
+   
 }
+   
+        
+        
+    
+
+
