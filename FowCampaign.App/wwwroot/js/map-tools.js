@@ -7,17 +7,7 @@
     initMap: (canvasId, imageSrc) => {
         return new Promise((resolve) => {
             const canvas = document.getElementById(canvasId);
-            if (!canvas) {
-                console.warn("Canvas element not found: " + canvasId);
-                resolve();
-                return;
-            }
-
-            if (!imageSrc) {
-                console.warn("Image source is empty.");
-                resolve();
-                return;
-            }
+            if (!canvas || !imageSrc) { resolve({width: 0, height: 0}); return; }
 
             const ctx = canvas.getContext('2d', {willReadFrequently: true});
             const img = new Image();
@@ -30,17 +20,20 @@
                 window.mapTools.canvas = canvas;
                 window.mapTools.ctx = ctx;
                 window.mapTools.img = img;
-                resolve();
+                resolve({ width: img.width, height: img.height });
             };
 
 
-            img.onerror = (err) => {
-                console.error("Failed to load map image.", err);
-                resolve();
-            };
-
+            img.onerror = (err) => { console.error(err); resolve({width: 0, height: 0}); };
             img.src = imageSrc;
         });
+    },
+
+    getClientDimensions: (elementId) => {
+        const el = document.getElementById(elementId);
+        if (!el) return { width: 1, height: 1 };
+        const rect = el.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
     },
 
     preprocessImageForOCR: (imageSrc) => {
@@ -64,12 +57,12 @@
 
                     if (brightness < 128) {
                         data[i] = 0;
-                        data[i+1] = 0;
-                        data[i+2] = 0;
+                        data[i + 1] = 0;
+                        data[i + 2] = 0;
                     } else {
                         data[i] = 255;
-                        data[i+1] = 255;
-                        data[i+2] = 255;
+                        data[i + 1] = 255;
+                        data[i + 2] = 255;
                     }
                 }
 
@@ -93,7 +86,7 @@
             tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.- '
         });
 
-        const { data } = await worker.recognize(processedImage);
+        const {data} = await worker.recognize(processedImage);
         await worker.terminate();
 
         if (data.words.length === 0) return [];
@@ -110,7 +103,7 @@
             usedIndices.add(i);
 
             let changed = true;
-            while(changed) {
+            while (changed) {
                 changed = false;
                 for (let j = 0; j < words.length; j++) {
                     if (usedIndices.has(j)) continue;
@@ -207,7 +200,7 @@
 
         const getBrightness = (x, y) => {
             const idx = (y * width + x) * 4;
-            return (originalData[idx] + originalData[idx+1] + originalData[idx+2]) / 3;
+            return (originalData[idx] + originalData[idx + 1] + originalData[idx + 2]) / 3;
         };
 
         if (getBrightness(effectiveX, effectiveY) < 80) {
@@ -217,7 +210,7 @@
                 for (let o of offsets) {
                     const nx = effectiveX + o[0];
                     const ny = effectiveY + o[1];
-                    if(nx >= 0 && ny >= 0 && nx < width && ny < height) {
+                    if (nx >= 0 && ny >= 0 && nx < width && ny < height) {
                         if (getBrightness(nx, ny) > 100) {
                             effectiveX = nx;
                             effectiveY = ny;
@@ -226,7 +219,7 @@
                         }
                     }
                 }
-                if(foundSafeSpot) break;
+                if (foundSafeSpot) break;
             }
             if (!foundSafeSpot) return null;
         }
@@ -256,8 +249,8 @@
 
         const colorsMatch = (idx) => {
             const or = originalData[idx];
-            const og = originalData[idx+1];
-            const ob = originalData[idx+2];
+            const og = originalData[idx + 1];
+            const ob = originalData[idx + 2];
             const diff = Math.abs(or - startR) + Math.abs(og - startG) + Math.abs(ob - startB);
             return diff < 130;
         };

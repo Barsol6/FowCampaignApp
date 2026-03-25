@@ -23,7 +23,7 @@ public class CampaignController : ControllerBase
     }
 
 
-    [HttpPost ("create")]
+    [HttpPost("create")]
     public async Task<IActionResult> CreateCampaign([FromForm] CreateCampaignDto request)
     {
         var nameClaim = User.Identity?.Name;
@@ -218,7 +218,7 @@ public class CampaignController : ControllerBase
             IsTurn = true
         });
         await _context.SaveChangesAsync();
-        return Ok(new JoinResult{ campaignId = campaign.Id, message = "Welcome to the campaign, Commander." });
+        return Ok(new JoinResult { campaignId = campaign.Id, message = "Welcome to the campaign, Commander." });
     }
 
     [HttpGet("lookup/{code}")]
@@ -260,5 +260,66 @@ public class CampaignController : ControllerBase
         _context.Campaigns.Remove(campaign);
         await _context.SaveChangesAsync();
         return Ok(new { message = "Campaign Deleted" });
+    }
+
+    [HttpPost("{id}/battle")]
+    [Authorize]
+    public async Task<IActionResult> BattleResult(int id, [FromBody] BattleResultDto battleResultDto)
+    {
+        var username = User.Identity?.Name;
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        if (user == null) return Unauthorized();
+
+        var campaign = await _context.Campaigns
+            .Include(c => c.Players)
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        if (campaign is null)
+        {
+            return NotFound("Campaign Not Found");
+        }
+
+        var playerRecord = campaign.Players.FirstOrDefault(p => p.UserId == user.Id);
+        if (playerRecord is null)
+        {
+            return Unauthorized("You are not a member of this campaign");
+        } 
+        
+        var battleJson = JsonSerializer.Serialize(new 
+        { 
+            battleResultDto.MajorPoints, 
+            battleResultDto.MinorPoints,
+            battleResultDto.UpdatedUnitFiles
+        });
+        
+
+         var newLog = new BattleLog
+        {
+            CampaignId = campaign.Id,
+            ZoneName = battleResultDto.ZoneName,
+            TurnNumber = battleResultDto.TurnNumber,
+            ResultJson = battleJson,
+            CreatedAt = DateTime.UtcNow
+        };
+        
+        _context.BattleLogs.Add(newLog);
+
+
+        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson);
+        if (state != null && battleResultDto.UpdatedUnitFiles.Any())
+        {
+            foreach (var unitFile in battleResultDto.UpdatedUnitFiles)
+            {
+                var targetUnits = state.Units.FirstOrDefault(u => u.Id == unitFile.Key);
+                if (targetUnits != null) targetUnits.ExcelDatabase64 = unitFile.Value;
+            }
+
+            campaign.GameStateJson = JsonSerializer.Serialize(state);
+        }
+        await _context.SaveChangesAsync();
+        
+        return Ok(new { message = "Battle logged successfully" });
+
+
     }
 }

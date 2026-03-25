@@ -14,8 +14,8 @@ namespace FowCampaign.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 public class UserController(
-    IUserRepository userRepository, 
-    PasswordHash passwordHash, 
+    IUserRepository userRepository,
+    PasswordHash passwordHash,
     IConfiguration configuration, 
     IValidator<RegisterDto> validator
 ) : ControllerBase
@@ -23,13 +23,11 @@ public class UserController(
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterDto user)
     {
-        var validationResult = await validator.ValidateAsync(user);
-        
-        if (!validationResult.IsValid) 
-        {
-            return BadRequest(validationResult.Errors);
-        }
-        
+        // validation is currently disabled as it is unnecessary now
+        /*var validationResult = await validator.ValidateAsync(user);
+
+        if (!validationResult.IsValid) return BadRequest(validationResult.Errors);*/
+
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
         if (await userRepository.CheckIfExistsAsync(user.Username))
@@ -40,7 +38,7 @@ public class UserController(
         var newUser = new User
         {
             Username = user.Username,
-            Password = hashedPassword,
+            Password = hashedPassword
         };
 
         await userRepository.AddUserAsync(newUser);

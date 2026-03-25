@@ -2,13 +2,7 @@
 @using System.Net.Http.Headers
 @using System.Text.Json
 @using FowCampaign.App.DTO
-@using FowCampaign.App.Layout
 @using FowCampaign.App.Shared
-@using Microsoft.AspNetCore.Authorization
-@using Microsoft.AspNetCore.Components.Forms
-@using Microsoft.AspNetCore.Components.Web
-@using Microsoft.AspNetCore.Components.WebAssembly.Http
-@using Microsoft.JSInterop
 
 @attribute [Authorize]
 @layout HomeLayout
@@ -48,7 +42,8 @@
 
         @if (MissingRequirements.Any())
         {
-            <div style="margin-bottom: 20px; padding: 10px; background-color: #fff3cd; border: 1px solid #ffeeba; border-left: 5px solid #ffc107; color: #856404; font-family: 'Courier New'; font-size: 0.9rem;">
+            <div
+                style="margin-bottom: 20px; padding: 10px; background-color: #fff3cd; border: 1px solid #ffeeba; border-left: 5px solid #ffc107; color: #856404; font-family: 'Courier New'; font-size: 0.9rem;">
                 <strong>DEPLOYMENT HALTED - MISSING INTEL:</strong>
                 <ul style="margin: 5px 0 0 20px; padding: 0;">
                     @foreach (var req in MissingRequirements)
@@ -72,14 +67,27 @@
             <h4 style="margin-top:0;">UNIT CREATOR</h4>
             <input type="text" class="tactical-input" @bind="_unitName" style="padding-bottom: 5px;"
                    placeholder="Unit Name"/>
+
             <div style="display:flex; gap: 20px; align-items: flex-start;">
                 <label class="logButton" style="font-size: 0.7rem; padding: 5px;">
-                    + NEW Unit
+                    + NEW UNIT ICON
                     <InputFile OnChange="@HandleIconUnitUpload" style="display: none;" accept="image/*"/>
                 </label>
 
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                    <label class="logButton"
+                           style="font-size: 0.7rem; padding: 5px; background-color: #2e7d32; color: white;">
+                        ATTACH EXCEL
+                        <InputFile OnChange="@HandleFileUpload" style="display: none;" accept=".xlsx"/>
+                    </label>
+                    @if (!string.IsNullOrEmpty(_pendingExcelName))
+                    {
+                        <span
+                            style="font-size: 0.7rem; color: #2e7d32; font-weight: bold;">Attached: @_pendingExcelName</span>
+                    }
+                </div>
                 @foreach (var def in _unitDefinitions)
-                {
+            {
                     <div @onclick="() => _selectedDefinitionId = def.Id"
                          style="cursor: pointer; padding: 5px; border: 2px solid @(_selectedDefinitionId == def.Id ? "#bd2424" : "transparent");">
                         <img src="@def.ImageBase64" style="width: 32px; height: 32px; display: block; margin: 0 auto;"/>
@@ -242,6 +250,7 @@
     private UnitDto _draggingUnit;
     private List<DetectedLabelDto> _ocrLabels = new();
 
+
     private string _unitName = string.Empty;
     private string _currentTool = "PAINT";
     private string _selectedDefinitionId;
@@ -254,7 +263,8 @@
     private string _regionName = string.Empty;
     private string _factionName = string.Empty;
     private string _factionColor = "#000000";
-
+    private string _pendingExcelBase64 = string.Empty;
+    private string _pendingExcelName = string.Empty;
     private bool _shouldRenderMap;
 
     private List<string> MissingRequirements
@@ -279,7 +289,7 @@
             await JsRuntime.InvokeVoidAsync("mapTools.initMap", "mapCanvas", _imageDataUrl);
         }
     }
-    
+
     private async Task HandleImageUpload(InputFileChangeEventArgs e)
     {
         var file = e.File;
@@ -338,12 +348,12 @@
                         Label = l,
                         Distance = Math.Sqrt(Math.Pow(l.X - realCoords.X, 2) + Math.Pow(l.Y - realCoords.Y, 2))
                     })
-                    .Where(x => x.Distance < 1500) 
+                    .Where(x => x.Distance < 1500)
                     .OrderBy(x => x.Distance)
                     .FirstOrDefault();
 
-                _regionName = !string.IsNullOrWhiteSpace(closestLabel?.Label.Text) 
-                    ? closestLabel.Label.Text 
+                _regionName = !string.IsNullOrWhiteSpace(closestLabel?.Label.Text)
+                    ? closestLabel.Label.Text
                     : "UNKNOWN SECTOR";
 
                 var nearbyExistingZone = _recordedZones
@@ -377,8 +387,13 @@
                 DefinitionId = _selectedDefinitionId,
                 FactionName = _selectedFaction.Name,
                 X = e.OffsetX,
-                Y = e.OffsetY
+                Y = e.OffsetY,
+                ExcelFileName = _pendingExcelName,
+                ExcelDatabase64 = _pendingExcelBase64
             });
+
+            _pendingExcelBase64 = "";
+            _pendingExcelName = "";
         }
     }
     private async Task ResetMap()
@@ -497,7 +512,7 @@
 
     private async Task AddFaction()
     {
-        if (_factionName == String.Empty)
+        if (_factionName == string.Empty)
         {
             return;
         }
@@ -516,7 +531,7 @@
 
         _model.Factions.Add(newFaction);
 
-        _factionName = String.Empty;
+        _factionName = string.Empty;
         _factionColor = "#000000";
 
         if (_model.Factions.Count == 1)
@@ -526,5 +541,33 @@
 
         StateHasChanged();
     }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+
+        if (!file.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            _errorMessage = "Only .xlsx files are supported. ";
+            return;
+        }
+
+        try
+        {
+            var MaxfileSize = 1024 * 1024 * 5;
+            var buffer = new byte[file.Size];
+            await file.OpenReadStream(MaxfileSize).ReadAsync(buffer);
+
+            _pendingExcelBase64 = Convert.ToBase64String(buffer);
+            _pendingExcelName = file.Name;
+            _errorMessage = null;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Excel file Upload Error: {ex.Message}";
+            Console.WriteLine(ex);
+        }
+    }
+
 
 }

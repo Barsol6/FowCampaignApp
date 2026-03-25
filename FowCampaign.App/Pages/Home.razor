@@ -47,7 +47,8 @@
                 {
                     @foreach (var camp in _campaigns)
                     {
-                        <div class="campaign-item-wrapper @(_burningCampaigns.Contains(camp.Id)? " burning-effect":"")">
+                        <div
+                            class="campaign-item-wrapper @(_burningCampaigns.Contains(camp.Id) ? " burning-effect" : "")">
                             <div class="folder" @onclick="@(() => OpenCampaign(camp.Id))">
                                 <div class="folder-stamp">TOP SECRET</div>
 

@@ -5,7 +5,7 @@ namespace FowCampaign.Api.Modules.Account;
 
 public class RegisterValidator : AbstractValidator<RegisterDto>
 {
-    public RegisterValidator ()
+    public RegisterValidator()
     {
         RuleFor(x => x.Username)
             .NotEmpty().WithMessage("Username is required.")
