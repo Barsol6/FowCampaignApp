@@ -1,6 +1,8 @@
 ﻿FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+
+RUN apt-get update && apt-get install -y python3
 RUN dotnet workload install wasm-tools
 
 COPY ["FowCampaign.Api/FowCampaign.Api.csproj", "FowCampaign.Api/"]
