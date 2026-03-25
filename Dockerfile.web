@@ -1,0 +1,23 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+ARG API_BASE_URL
+
+RUN dotnet workload install wasm-tools
+
+COPY ["FowCampaign.App/FowCampaign.App.csproj", "FowCampaign.App/"]
+RUN dotnet restore "FowCampaign.App/FowCampaign.App.csproj"
+
+COPY . .
+
+RUN sed -i "s#https://localhost:7079/#${API_BASE_URL}#g" /src/FowCampaign.App/wwwroot/appsettings.json
+
+WORKDIR /src/FowCampaign.App
+RUN dotnet publish "FowCampaign.App.csproj" -c Release -o /app/publish
+
+FROM nginx:alpine
+COPY FowCampaign.App/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/publish/wwwroot /usr/share/nginx/html
+
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
