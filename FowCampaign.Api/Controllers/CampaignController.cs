@@ -7,6 +7,10 @@ using FowCampaign.App.DTO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using BattleResultDto = FowCampaign.Api.DTO.BattleResultDto;
+using CampaignDto = FowCampaign.Api.DTO.CampaignDto;
+using CreateCampaignDto = FowCampaign.Api.DTO.CreateCampaignDto;
+using LoadGameDataDto = FowCampaign.Api.DTO.LoadGameDataDto;
 
 namespace FowCampaign.Api.Controllers;
 
