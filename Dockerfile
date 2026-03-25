@@ -11,7 +11,7 @@ RUN dotnet restore "FowCampaign.Api/FowCampaign.Api.csproj"
 COPY . .
 WORKDIR "/src/FowCampaign.Api"
 
-RUN dotnet build "FowCampaign.Api.csproj" -c Release -o /app/build
+RUN dotnet build "FowCampaign.Api.csproj" -c Release -o /app/build -p:RunAOTCompilation=false
 
 FROM build AS publish
 RUN dotnet publish "FowCampaign.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
