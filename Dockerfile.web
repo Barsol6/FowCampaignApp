@@ -1,0 +1,27 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+ARG API_BASE_URL
+
+RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+COPY ["global.json", "."]
+COPY ["FowCampaign.App/FowCampaign.App.csproj", "FowCampaign.App/"]
+
+RUN dotnet workload restore "FowCampaign.App/FowCampaign.App.csproj"
+RUN dotnet restore "FowCampaign.App/FowCampaign.App.csproj"
+
+COPY . .
+
+RUN sed -i "s#https://localhost:7079/#${API_BASE_URL}#g" /src/FowCampaign.App/wwwroot/appsettings.json
+
+WORKDIR /src/FowCampaign.App
+RUN dotnet publish "FowCampaign.App.csproj" -c Release -o /app/publish
+
+FROM nginx:alpine
+COPY FowCampaign.App/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/publish/wwwroot /usr/share/nginx/html
+
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]

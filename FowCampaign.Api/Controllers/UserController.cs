@@ -67,7 +67,7 @@ public class UserController(
         {
             HttpOnly = true,
             Secure = true,
-            SameSite = SameSiteMode.Strict,
+            SameSite = SameSiteMode.None,
             Expires = DateTime.Now.AddDays(1)
         };
 
@@ -83,7 +83,7 @@ public class UserController(
         {
             HttpOnly = true,
             Secure = true,
-            SameSite = SameSiteMode.Strict,
+            SameSite = SameSiteMode.None,
             Expires = DateTime.UtcNow.AddDays(-1)
         };
         Response.Cookies.Append("authToken", "", cookieOptions);

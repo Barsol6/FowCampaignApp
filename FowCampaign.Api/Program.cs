@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,9 +21,14 @@ builder.Services.AddSwaggerGen(options =>
     }
 );
 
+// Added env configurable db path for setup
 builder.Services.AddDbContext<FowCampaignContext>(options =>
 {
-    options.UseSqlite("Data Source=campaign.db");
+    var connectionString =
+        builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? "Data Source=campaign.db";
+
+    options.UseSqlite(connectionString);
     options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
 });
 
@@ -91,13 +97,17 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
+// Disable on Railway; TLS is already terminated at the proxy.
+// app.UseHttpsRedirection();
 
 app.UseCors("AllowClient");
-
 app.UseAuthentication();
 app.UseAuthorization();
-
 
 app.MapControllers();
 
@@ -106,6 +116,5 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<FowCampaignContext>();
     db.Database.Migrate();
 }
-
 
 app.Run();
