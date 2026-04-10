@@ -55,7 +55,8 @@
                     <span>Playing As: <span style="color:yellow;">@_gameDataApp.MyFactionName</span></span>
                 </div>
 
-                <div class="canvas-container" style="position: relative; width: fit-content; height: fit-content;"
+                <div class="canvas-container"
+                     style="position: relative; width: fit-content; margin: 0 auto; display: block;"
                      @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
 
@@ -559,11 +560,12 @@
                 {
                     _mapRealWidth = dims.Width;
                     _mapRealHeight = dims.Height;
-                    StateHasChanged();
                 }
 
                 if (_stateApp != null)
                 {
+                    //var loadedJson = JsonSerializer.Serialize(_stateApp, new JsonSerializerOptions { WriteIndented = true });
+                    // Console.WriteLine(loadedJson);
                     foreach (var zone in _stateApp.Zones)
                     {
                         var f = _stateApp.Factions.FirstOrDefault(fn => fn.Name == zone.FactionName);

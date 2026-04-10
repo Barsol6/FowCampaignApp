@@ -125,7 +125,7 @@
                      style="position: relative; width: fit-content; margin: 0 auto; display: block; "
                      @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
-                    <canvas id="mapCanvas" @onclick="HandleCanvasClick" style="display: block; "></canvas>
+                    <canvas id="mapCanvas" @onclick="HandleCanvasClick"></canvas>
                     @foreach (var unit in _deployedUnits)
                     {
                         var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
@@ -266,6 +266,10 @@
     private string _pendingExcelBase64 = string.Empty;
     private string _pendingExcelName = string.Empty;
     private bool _shouldRenderMap;
+    private readonly double _mapRealWidth = 1;
+    private double _mapRealHeight = 1;
+    private double _dragScaleFactor = 1.0;
+
 
     private List<string> MissingRequirements
     {
@@ -356,26 +360,13 @@
                     ? closestLabel.Label.Text
                     : "UNKNOWN SECTOR";
 
-                var nearbyExistingZone = _recordedZones
-                    .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 40);
-
-                if (nearbyExistingZone != null)
+                _recordedZones.Add(new ZoneSeedAppDto
                 {
-                    nearbyExistingZone.FactionName = _selectedFactionApp.Name;
-                    nearbyExistingZone.X = realCoords.X;
-                    nearbyExistingZone.Y = realCoords.Y;
-                    nearbyExistingZone.Name = _regionName;
-                }
-                else
-                {
-                    _recordedZones.Add(new ZoneSeedAppDto
-                    {
-                        X = realCoords.X,
-                        Y = realCoords.Y,
-                        FactionName = _selectedFactionApp.Name,
-                        Name = _regionName
-                    });
-                }
+                    X = realCoords.X,
+                    Y = realCoords.Y,
+                    FactionName = _selectedFactionApp.Name,
+                    Name = _regionName
+                });
             }
         }
         else if (_currentTool == "DEPLOY")
@@ -418,6 +409,11 @@
             CurrentTurnFaction = _startingFactionApp.Name,
             TurnNumber = 1
         };
+
+        /*var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+        var jsonString = JsonSerializer.Serialize(gameState, jsonOptions);
+        Console.WriteLine(jsonString);*/
+
 
         var jsonString = JsonSerializer.Serialize(gameState);
 
@@ -470,20 +466,27 @@
         _unitName = string.Empty;
     }
 
-    private void StartDrag(UnitAppDto unitApp)
+    private async Task StartDrag(UnitAppDto unitApp)
     {
         if (_currentTool == "DEPLOY")
         {
             _draggingUnitApp = unitApp;
+
+            var visualDims = await JsRuntime.InvokeAsync<Game.MapDimensions>("mapTools.getCanvasDimensions", "gameCanvas");
+
+            if (visualDims.Width > 0)
+            {
+                _dragScaleFactor = _mapRealWidth / visualDims.Width;
+            }
         }
     }
 
-    private void HandleWrapperMouseMove(MouseEventArgs e)
+    private async Task HandleWrapperMouseMove(MouseEventArgs e)
     {
         if (_draggingUnitApp != null)
         {
-            _draggingUnitApp.X = e.OffsetX;
-            _draggingUnitApp.Y = e.OffsetY;
+            _draggingUnitApp.X = e.OffsetX * _dragScaleFactor;
+            _draggingUnitApp.Y = e.OffsetY * _dragScaleFactor;
         }
     }
 
