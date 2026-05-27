@@ -42,7 +42,7 @@
         {
             <div class="turn-banner"
                  style="background-color: @(_ = GetFactionColor(_stateApp.CurrentTurnFaction).Result);">
-                TURN @(_stateApp.TurnNumber): @(_stateApp.CurrentTurnFaction.ToUpper())
+                TURN @(_stateApp.TurnNumber): @(_stateApp.Phase.ToString().ToUpper())
             </div>
         }
 
@@ -59,7 +59,7 @@
                      @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
 
-                    <canvas id="gameCanvas" class="game-canvas" @onclick="HandleMapClick"></canvas>
+                    <canvas id="gameCanvas" class="game-canvas"></canvas>
                     @if (_isProcessingMap)
                     {
                         <div class="map-overlay-blocker">
@@ -78,8 +78,7 @@
                             var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
 
                             var isMyUnit = unit.FactionName == _gameDataApp.MyFactionName;
-                            var isMyTurn = _stateApp.CurrentTurnFaction == _gameDataApp.MyFactionName;
-                            var canDrag = isMyUnit && isMyTurn;
+                            var canDrag = isMyUnit && _stateApp.Phase == TurnPhase.Moving;
 
                             var dragClass = canDrag ? "unit-draggable" : "unit-locked";
                             var pointerClass = _draggingUnitApp != null ? "pointer-events-none" : "";
@@ -103,8 +102,6 @@
                             }
                         }
                     }
-
-                    }
                 </div>
             </div>
 
@@ -113,87 +110,51 @@
                 <div class="sidebar-section">
                     <h4 class="section-header">COMMAND</h4>
 
-                    @if (_stateApp?.CurrentTurnFaction == _gameDataApp?.MyFactionName)
+                    <button class="btn-full btn-open-roster" @onclick="() => _showRosterModal = true">
+                        OPEN UNIT ROSTER
+                    </button>
+
+                    @if (_stateApp.Phase == TurnPhase.Moving)
                     {
-                        <button class="btn-full btn-open-roster" @onclick="() => _showRosterModal = true">
-                            OPEN UNIT ROSTER
-                        </button>
+                        <div class="status-box status-active mb-5">
+                            <strong>STATUS:</strong> Awaiting Orders
+                        </div>
 
-                        @if (_turnPhase == TurnPhase.Planning || _turnPhase == TurnPhase.Deployment)
+                        @if (!_stateApp.PendingManeuvers.ContainsKey(_gameDataApp.MyFactionName))
                         {
-                            <div class="status-box status-active mb-5">
-                                <strong>STATUS:</strong> Awaiting Orders
-                            </div>
-
-                            <button class="btn-full mb-5"
-                                    style="background-color: @(_turnPhase == TurnPhase.Deployment ? "#8b0000" : "#444"); color: white;"
-                                    @onclick="ToggleDeploymentMode">
-                                @(_turnPhase == TurnPhase.Deployment ? "CANCEL DEPLOYMENT" : "RECRUIT NEW UNIT")
+                            <button class="btn-full btn-confirm" @onclick="SubmitManeuvers">
+                                CONFIRM MOVES
                             </button>
-
-                            @if (_turnPhase == TurnPhase.Deployment)
-                            {
-                                <div class="deployment-panel">
-                                    <select @bind="_selectedDeployDefId" class="tactical-input-white mb-10">
-                                        <option value="">-- Select Unit Type --</option>
-                                        @foreach (var def in _stateApp.UnitDefinitions)
-                                        {
-                                            <option value="@def.Id">@def.Name</option>
-                                        }
-                                    </select>
-
-                                    <label class="btn-full btn-attach-excel">
-                                        ATTACH EXCEL (OPT)
-                                        <InputFile OnChange="@HandleDeployedUnitExcel" style="display: none;"
-                                                   accept=".xlsx"/>
-                                    </label>
-
-                                    @if (!string.IsNullOrEmpty(_pendingDeployExcelName))
-                                    {
-                                        <span class="attached-file-label">Attached: @_pendingDeployExcelName</span>
-                                    }
-
-                                    <span class="deployment-instruction">CLICK ON THE MAP TO DEPLOY</span>
-                                </div>
-                            }
-
-                            @if (_turnPhase != TurnPhase.Deployment)
-                            {
-                                <button class="btn-full btn-confirm"
-                                        @onclick="() => { _turnPhase = TurnPhase.Capture; StateHasChanged(); }">
-                                    CONFIRM MOVES
-                                </button>
-                            }
                         }
-                        else if (_turnPhase == TurnPhase.Capture)
+                        else
                         {
-                            <div class="status-box status-active"><strong>STATUS:</strong> Capture Phase</div>
-                            <button class="btn-full btn-confirm"
-                                    @onclick="() => { _turnPhase = TurnPhase.Planning; StateHasChanged(); }">BACK
-                            </button>
-                            <button class="btn-full btn-capture" @onclick="SubmitTurn">CONFIRM CAPTURE & SAVE</button>
+                            <div class="status-box status-waiting"><strong>STATUS:</strong> Waiting for other players...</div>
                         }
                     }
-                    else
+                    else if (_stateApp.Phase == TurnPhase.Resolution)
                     {
-                        <div class="status-box status-waiting"><strong>STATUS:</strong> Enemy Acting</div>
-                        <button class="btn-full btn-wait" disabled>WAITING...</button>
+                        <div class="status-box status-active"><strong>STATUS:</strong> Resolving Maneuvers</div>
+                        <button class="btn-full btn-wait" disabled>PROCESSING...</button>
+                    }
+                    else if (_stateApp.Phase == TurnPhase.Combat)
+                    {
+                        <div class="status-box status-battle"><strong>STATUS:</strong> Combat Phase</div>
+                        @if (_battleAvailable)
+                        {
+                            <div class="sidebar-section">
+                                <div class="status-box status-battle">
+                                    <strong>⚔ CONTACT:</strong> @_battleZoneName
+                                </div>
+                                <button class="btn-full btn-battle" @onclick="openBattlePanel">
+                                    INITIATE BATTLE
+                                </button>
+                            </div>
+                        }
+                        <button class="btn-full btn-confirm" @onclick="EndTurn">
+                            END TURN
+                        </button>
                     }
                 </div>
-
-                @if (_stateApp?.CurrentTurnFaction == _gameDataApp?.MyFactionName
-                     && _turnPhase == TurnPhase.Planning
-                     && _battleAvailable)
-                {
-                    <div class="sidebar-section">
-                        <div class="status-box status-battle">
-                            <strong>⚔ CONTACT:</strong> @_battleZoneName
-                        </div>
-                        <button class="btn-full btn-battle" @onclick="openBattlePanel">
-                            INITIATE BATTLE
-                        </button>
-                    </div>
-                }
 
                 @if (_showBattlePanel && _battleZone != null)
                 {
@@ -483,23 +444,6 @@
     private readonly Dictionary<string, int> _majorPoints = new();
     private readonly Dictionary<string, int> _minorPoints = new();
 
-    private string _unitToRemoveId;
-
-    private static string UnitUiKey(UnitAppDto u)
-    {
-        return $"{u.FactionName}|{u.DefinitionId}|{u.X}|{u.Y}";
-    }
-
-
-    private enum TurnPhase
-    {
-        Planning,
-        Capture,
-        Deployment,
-        Processing
-    }
-
-    private TurnPhase _turnPhase = TurnPhase.Planning;
     private bool _isLoading = true;
     private bool _loadError;
     private bool _mapRendered;
@@ -508,9 +452,6 @@
     private List<List<string>> _activeExcelGrid = new();
     private byte[] _originalExcelBytes;
     private bool _showRosterModal;
-    private string _selectedDeployDefId = string.Empty;
-    private string _pendingDeployExcelName = string.Empty;
-    private string _pendingDeployExcelBase64 = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -520,7 +461,7 @@
 
             if (!string.IsNullOrEmpty(_gameDataApp.GameStateJson))
             {
-                _stateApp = JsonSerializer.Deserialize<GameStateAppDto>(_gameDataApp.GameStateJson);
+                _stateApp = JsonSerializer.Deserialize<GameStateAppDto>(_gameDataApp.GameStateJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                 if (string.IsNullOrEmpty(_stateApp.CurrentTurnFaction))
                 {
@@ -570,6 +511,7 @@
                         if (f != null) await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, f.Color);
                     }
                 }
+                await RecalculateBattleAvailability();
             }
             catch (Exception ex)
             {
@@ -581,13 +523,12 @@
 
     private async Task StartDrag(UnitAppDto unitApp)
     {
-        if (_turnPhase != TurnPhase.Planning)
+        if (_stateApp.Phase != TurnPhase.Moving)
         {
             return;
         }
 
-        if (unitApp.FactionName == _gameDataApp.MyFactionName &&
-            _stateApp.CurrentTurnFaction == _gameDataApp.MyFactionName)
+        if (unitApp.FactionName == _gameDataApp.MyFactionName)
         {
             _draggingUnitApp = unitApp;
 
@@ -611,134 +552,33 @@
 
     private async Task HandleWrapperMouseUp()
     {
-        _draggingUnitApp = null;
-        await RecalculateBattleAvailability();
+        if (_draggingUnitApp != null)
+        {
+            _draggingUnitApp = null;
+            await RecalculateBattleAvailability();
+        }
     }
 
-    private async Task SubmitTurn()
+    private async Task SubmitManeuvers()
     {
-        var endTurnReqestDto = new EndTurnRequestAppDto
-        {
-            Units = _stateApp.Units,
-            Zones = _stateApp.Zones
-        };
-        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/turn", endTurnReqestDto);
+        var myManeuvers = _stateApp.Units
+            .Where(u => u.FactionName == _gameDataApp.MyFactionName)
+            .Select(u => new UnitManeuver { UnitId = u.Id, TargetX = u.X, TargetY = u.Y })
+            .ToList();
+
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/maneuver", myManeuvers);
         if (response.IsSuccessStatusCode)
         {
             NavigationManager.NavigateTo(NavigationManager.Uri, true);
         }
     }
 
-    private async Task HandleMapClick(MouseEventArgs e)
+    private async Task EndTurn()
     {
-        if (_stateApp == null || _gameDataApp == null || _isProcessingMap) return;
-
-        if (_stateApp.CurrentTurnFaction != _gameDataApp.MyFactionName)
+        var response = await Http.PostAsync($"api/Campaign/{Id}/endturn", null);
+        if (response.IsSuccessStatusCode)
         {
-            return;
-        }
-
-        if (_turnPhase == TurnPhase.Deployment)
-        {
-            if (string.IsNullOrWhiteSpace(_selectedDeployDefId))
-            {
-                return;
-            }
-
-            var realCoords = await JS.InvokeAsync<CampaignCreator.PaintCoord>(
-                "mapTools.getSize",
-                e.OffsetX,
-                e.OffsetY
-            );
-
-            if (realCoords is not null)
-            {
-                var newUnit = new UnitAppDto
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    DefinitionId = _selectedDeployDefId,
-                    FactionName = _gameDataApp.MyFactionName,
-                    X = realCoords.X,
-                    Y = realCoords.Y,
-                    ExcelFileName = _pendingDeployExcelName,
-                    ExcelDatabase64 = _pendingDeployExcelBase64
-                };
-
-                _stateApp.Units.Add(newUnit);
-
-                _pendingDeployExcelBase64 = null;
-                _pendingDeployExcelName = null;
-                StateHasChanged();
-            }
-
-            return;
-        }
-
-        if (_turnPhase != TurnPhase.Capture) return;
-        _isProcessingMap = true;
-        StateHasChanged();
-        _turnPhase = TurnPhase.Processing;
-
-        await Task.Delay(50);
-
-        try
-        {
-            var realCoords = await JS.InvokeAsync<CampaignCreator.PaintCoord>(
-                "mapTools.getSize",
-                e.OffsetX,
-                e.OffsetY
-            );
-
-            if (realCoords == null)
-            {
-                return;
-            }
-
-            ZoneSeedAppDto currentRegion = null;
-            var distanceMin = double.MaxValue;
-
-            foreach (var region in _stateApp.Zones)
-            {
-                var distanceX = realCoords.X - region.X;
-                var distanceY = realCoords.Y - region.Y;
-
-                var distance = distanceX * distanceX + distanceY * distanceY;
-
-                if (distanceMin > distance)
-                {
-                    distanceMin = distance;
-                    currentRegion = region;
-                }
-            }
-
-            double maxDistanceSquared = 250 * 250;
-
-            if (currentRegion != null && distanceMin < maxDistanceSquared)
-            {
-                Console.WriteLine($"DEBUG: Trafiono region {currentRegion.Name}. Rozpoczynam kolorowanie...");
-
-                currentRegion.FactionName = _gameDataApp.MyFactionName;
-                var myFactionColor = GetFactionColor(_gameDataApp.MyFactionName);
-
-                await JS.InvokeVoidAsync("mapTools.floodFillRaw", (int)currentRegion.X, (int)currentRegion.Y, myFactionColor);
-
-                _stateApp.Zones = _stateApp.Zones.Select(z =>
-                    z.X == currentRegion.X && z.Y == currentRegion.Y
-                        ? new ZoneSeedAppDto { X = z.X, Y = z.Y, FactionName = currentRegion.FactionName, Name = z.Name }
-                        : z
-                ).ToList();
-            }
-        }
-
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Coloring Error: {ex.Message}");
-        }
-        finally
-        {
-            _isProcessingMap = false;
-            _turnPhase = TurnPhase.Capture;
-            StateHasChanged();
+            NavigationManager.NavigateTo(NavigationManager.Uri, true);
         }
     }
 
@@ -785,9 +625,11 @@
                     _minorPoints[faction] = 0;
                 }
 
+                StateHasChanged();
                 return;
             }
         }
+        StateHasChanged();
     }
 
     private async Task openBattlePanel()
@@ -796,22 +638,6 @@
         {
             _showBattlePanel = true;
         }
-    }
-
-    private async Task RemoveSelectedUnitIfAny()
-    {
-        if (string.IsNullOrWhiteSpace(_unitToRemoveId) || _stateApp == null)
-        {
-            return;
-        }
-
-        var target = _stateApp.Units.FirstOrDefault(u => UnitUiKey(u) == _unitToRemoveId);
-        if (target != null)
-        {
-            _stateApp.Units.Remove(target);
-        }
-
-        _unitToRemoveId = null;
     }
 
     private async Task ConfirmBattleResults()
@@ -968,53 +794,9 @@
         _originalExcelBytes = null;
     }
 
-    private void ToggleDeploymentMode()
-    {
-        if (_turnPhase == TurnPhase.Deployment)
-        {
-            _turnPhase = TurnPhase.Planning;
-            _selectedDeployDefId = string.Empty;
-        }
-        else
-        {
-            _turnPhase = TurnPhase.Deployment;
-        }
-    }
-
     private void CloseRosterModal()
     {
         _showRosterModal = false;
         CloseExcelEditor();
     }
-
-    private async Task HandleDeployedUnitExcel(InputFileChangeEventArgs e)
-    {
-        var file = e.File;
-        if (!file.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        try
-        {
-            var maxFileSize = 1024 * 1024 * 5;
-            using var stream = new MemoryStream();
-            await file.OpenReadStream(maxFileSize).CopyToAsync(stream);
-
-            _pendingDeployExcelBase64 = Convert.ToBase64String(stream.ToArray());
-            _pendingDeployExcelName = file.Name;
-        }
-        catch (Exception exception)
-        {
-            Console.WriteLine($"Error reading excel file: {exception.Message}");
-        }
-    }
-
-
 }
-   
-        
-        
-    
-
-

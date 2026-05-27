@@ -123,9 +123,10 @@
                 </div>
                 <div class="canvas-wrapper"
                      style="position: relative; width: fit-content; margin: 0 auto; display: block; "
+                     @onclick="HandleCanvasClick"
                      @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
-                    <canvas id="mapCanvas" @onclick="HandleCanvasClick" style="display: block; "></canvas>
+                    <canvas id="mapCanvas" style="display: block; pointer-events:none;"></canvas>
                     @foreach (var unit in _deployedUnits)
                     {
                         var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
@@ -136,12 +137,12 @@
                         {
                             <div class="map-unit @(isBeingDragged ? "is-dragging" : "")"
                                  style="position: absolute;
-                                     left: @(unit.X)px;
-                                 top: @(unit.Y)px;
-                                 transform: translate(-50%, -50%);
-                                 border: 2px solid @factionColor;
-                                 box-shadow: 0 0 5px @factionColor;
-                                 pointer-events: @(isBeingDragged ? "none" : "auto");"
+                 left: @((unit.X / _mapRealWidth * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;
+                 top: @((unit.Y / _mapRealHeight * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;
+             transform: translate(-50%, -50%);
+             border: 2px solid @factionColor;
+             box-shadow: 0 0 5px @factionColor;
+             pointer-events: @(isBeingDragged ? "none" : "auto");"
                                  @onmousedown="() => StartDrag(unit)"
                                  @onmousedown:stopPropagation="true"
                                  @oncontextmenu="() => DeleteUnit(unit)"
@@ -267,6 +268,18 @@
     private string _pendingExcelName = string.Empty;
     private bool _shouldRenderMap;
 
+    public class MapDimensions
+    {
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+
+    private double _mapRealWidth = 1;
+    private double _mapRealHeight = 1;
+    private double _displayScaleFactorX = 1.0;
+    private double _displayScaleFactorY = 1.0;
+
+
     private List<string> MissingRequirements
     {
         get
@@ -286,7 +299,18 @@
         if (_shouldRenderMap)
         {
             _shouldRenderMap = false;
-            await JsRuntime.InvokeVoidAsync("mapTools.initMap", "mapCanvas", _imageDataUrl);
+            var realDims = await JsRuntime.InvokeAsync<MapDimensions>("mapTools.initMap", "mapCanvas", _imageDataUrl);
+            if (realDims.Width > 0 && realDims.Height > 0)
+            {
+                _mapRealWidth = realDims.Width;
+                _mapRealHeight = realDims.Height;
+                var visualDims = await JsRuntime.InvokeAsync<MapDimensions>("mapTools.getClientDimensions", "mapCanvas");
+                if (visualDims.Width > 0 && visualDims.Height > 0)
+                {
+                    _displayScaleFactorX = visualDims.Width / _mapRealWidth;
+                    _displayScaleFactorY = visualDims.Height / _mapRealHeight;
+                }
+            }
         }
     }
 
@@ -382,18 +406,28 @@
         {
             if (string.IsNullOrEmpty(_selectedDefinitionId) && _draggingUnitApp != null) return;
 
-            _deployedUnits.Add(new UnitAppDto
-            {
-                DefinitionId = _selectedDefinitionId,
-                FactionName = _selectedFactionApp.Name,
-                X = e.OffsetX,
-                Y = e.OffsetY,
-                ExcelFileName = _pendingExcelName,
-                ExcelDatabase64 = _pendingExcelBase64
-            });
+    
+            var realCoords = await JsRuntime.InvokeAsync<PaintCoord>(
+                "mapTools.getCanvasCoordinates",
+                e.OffsetX,
+                e.OffsetY
+            );
 
-            _pendingExcelBase64 = "";
-            _pendingExcelName = "";
+            if (realCoords != null)
+            {
+                _deployedUnits.Add(new UnitAppDto
+                {
+                    DefinitionId = _selectedDefinitionId,
+                    FactionName = _selectedFactionApp.Name,
+                    X = realCoords.X,
+                    Y = realCoords.Y,
+                    ExcelFileName = _pendingExcelName,
+                    ExcelDatabase64 = _pendingExcelBase64
+                });
+
+                _pendingExcelBase64 = "";
+                _pendingExcelName = "";
+            }
         }
     }
 
@@ -482,8 +516,11 @@
     {
         if (_draggingUnitApp != null)
         {
-            _draggingUnitApp.X = e.OffsetX;
-            _draggingUnitApp.Y = e.OffsetY;
+            if (_displayScaleFactorX > 0 && _displayScaleFactorY > 0)
+            {
+                _draggingUnitApp.X = e.OffsetX / _displayScaleFactorX;
+                _draggingUnitApp.Y = e.OffsetY / _displayScaleFactorY;
+            }
         }
     }
 
