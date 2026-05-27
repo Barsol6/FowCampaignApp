@@ -7,6 +7,7 @@ using FowCampaign.App.DTO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TurnPhase = FowCampaign.Api.DTO.TurnPhase;
 
 namespace FowCampaign.Api.Controllers;
 
@@ -143,6 +144,54 @@ public class CampaignController : ControllerBase
             IsHost = campaign.OwnerId == user.Id
         });
     }
+
+    [HttpPost("{Id}/maneuver")]
+    [Authorize]
+    public async Task<IActionResult> SubmitManeuvers(int id, [FromBody] List<UnitManeuver> maneuvers)
+    {
+        var username = User.Identity?.Name;
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        if (user == null) return Unauthorized();
+
+        var campaign = await _context.Campaigns.Include(c => c.Players)
+            .FirstOrDefaultAsync(c => c.Id == id);
+        if (campaign == null) return NotFound("Campaign Not Found");
+
+        var playerRecord = campaign.Players.FirstOrDefault(p => p.UserId == user.Id);
+        if (playerRecord == null) return Unauthorized("You are not a member of this campaign");
+
+        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson);
+        if (state == null) return BadRequest("Invalid game state");
+
+        if (state.Phase != TurnPhase.Moving) return BadRequest("It is not the moving phase.");
+
+        state.PendingManeuvers[playerRecord.FactionName] = maneuvers;
+
+        var allPlayersMoved = campaign.Players.All(p => state.PendingManeuvers.ContainsKey(p.FactionName));
+
+        if (allPlayersMoved)
+        {
+            foreach (var playerManeuvers in state.PendingManeuvers)
+            foreach (var maneuver in playerManeuvers.Value)
+            {
+                var unit = state.Units.FirstOrDefault(u => u.Id == maneuver.UnitId);
+                if (unit != null)
+                {
+                    unit.X = maneuver.TargetX;
+                    unit.Y = maneuver.TargetY;
+                }
+            }
+
+            state.PendingManeuvers.Clear();
+            state.Phase = TurnPhase.Resolution;
+        }
+
+        campaign.GameStateJson = JsonSerializer.Serialize(state);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = "Maneuvers submitted." });
+    }
+
 
     [HttpPost("{Id}/turn")]
     [Authorize]

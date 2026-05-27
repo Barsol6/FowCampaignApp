@@ -300,5 +300,32 @@
         }
     },
 
-    getSize: (x, y) => window.mapTools.getCanvasCoordinates(x, y)
+    getSize: (clientX, clientY) => {
+        const canvas = window.mapTools.canvas;
+        if (!canvas) return null;
+        const wrapper = canvas.closest('.canvas-wrapper');
+        if (!wrapper) return null;
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const offsetX_wrapper = clientX - wrapperRect.left;
+        const offsetY_wrapper = clientY - wrapperRect.top;
+        const scaleX = canvas.width / canvasRect.width;
+        const scaleY = canvas.height / canvasRect.height;
+        const realX = offsetX_wrapper * scaleX;
+        const realY = offsetY_wrapper * scaleY;
+        return { x: realX, y: realY };
+    },
+
+    getRealCoordinates: (clientX, clientY) => {
+        const canvas = window.mapTools.canvas;
+        if (!canvas) return null;
+
+        const canvasRect = canvas.getBoundingClientRect();
+
+        const offsetX = clientX - canvasRect.left;
+        const offsetY = clientY - canvasRect.top;
+
+      
+        return { x: offsetX, y: offsetY };
+    }
 };
