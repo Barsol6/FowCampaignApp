@@ -41,7 +41,7 @@
         @if (_stateApp != null)
         {
             <div class="turn-banner"
-                 style="background-color: @(_ = GetFactionColor(_stateApp.CurrentTurnFaction).Result);">
+                 style="background-color: @(_ = GetFactionColor(_stateApp.CurrentTurnFaction));">
                 TURN @(_stateApp.TurnNumber): @(_stateApp.Phase.ToString().ToUpper())
             </div>
         }
@@ -334,7 +334,7 @@
 
             <div class="roster-modal-header">
                 <h2 class="roster-modal-title">
-                    <span style="color: @GetFactionColor(_gameDataApp.MyFactionName).Result;">
+                    <span style="color: @GetFactionColor(_gameDataApp?.MyFactionName);">
                         @_gameDataApp.MyFactionName.ToUpper()
                     </span> TACTICAL ROSTER
                 </h2>
@@ -428,8 +428,8 @@
 @code {
     [Parameter] public int Id { get; set; }
     private PaperSheet _paper;
-    private LoadGameDataAppDto _gameDataApp;
-    private GameStateAppDto _stateApp;
+    private LoadGameDataAppDto? _gameDataApp;
+    private GameStateAppDto? _stateApp;
     private UnitAppDto _draggingUnitApp;
     private bool _isProcessingMap;
     private bool _battleAvailable;
@@ -459,11 +459,11 @@
         {
             _gameDataApp = await Http.GetFromJsonAsync<LoadGameDataAppDto>($"api/Campaign/{Id}");
 
-            if (!string.IsNullOrEmpty(_gameDataApp.GameStateJson))
+            if (!string.IsNullOrEmpty(_gameDataApp?.GameStateJson))
             {
-                _stateApp = JsonSerializer.Deserialize<GameStateAppDto>(_gameDataApp.GameStateJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                _stateApp = JsonSerializer.Deserialize<GameStateAppDto>(_gameDataApp.GameStateJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 
-                if (string.IsNullOrEmpty(_stateApp.CurrentTurnFaction))
+                if (string.IsNullOrEmpty(_stateApp?.CurrentTurnFaction))
                 {
                     _stateApp.CurrentTurnFaction = _stateApp.Factions.FirstOrDefault()?.Name ?? "Axis";
                     _stateApp.TurnNumber = 1;
@@ -481,9 +481,9 @@
         }
     }
 
-    private async Task<string> GetFactionColor(string factionName)
+    private  string GetFactionColor(string factionName)
     {
-        return _stateApp?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
+        return  _stateApp?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -500,17 +500,23 @@
                 {
                     _mapRealWidth = dims.Width;
                     _mapRealHeight = dims.Height;
+                    
+                    await Task.Delay(50);
+
+                    if (_stateApp?.Zones != null)
+                    {
+                        foreach (var zone in _stateApp.Zones)
+                        {
+                            var factionColor =  GetFactionColor(zone.FactionName);
+                            if (!string.IsNullOrEmpty(factionColor))
+                            {
+                                await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, factionColor);
+                            }
+                        }
+                    }
                     StateHasChanged();
                 }
-
-                if (_stateApp != null)
-                {
-                    foreach (var zone in _stateApp.Zones)
-                    {
-                        var f = _stateApp.Factions.FirstOrDefault(fn => fn.Name == zone.FactionName);
-                        if (f != null) await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, f.Color);
-                    }
-                }
+                
                 await RecalculateBattleAvailability();
             }
             catch (Exception ex)

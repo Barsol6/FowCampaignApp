@@ -381,7 +381,7 @@
                     : "UNKNOWN SECTOR";
 
                 var nearbyExistingZone = _recordedZones
-                    .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 40);
+                    .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 5);
 
                 if (nearbyExistingZone != null)
                 {
@@ -407,27 +407,25 @@
             if (string.IsNullOrEmpty(_selectedDefinitionId) && _draggingUnitApp != null) return;
 
     
-            var realCoords = await JsRuntime.InvokeAsync<PaintCoord>(
+            var realCoords  = await JsRuntime.InvokeAsync<PaintCoord>(
                 "mapTools.getCanvasCoordinates",
                 e.OffsetX,
                 e.OffsetY
             );
 
-            if (realCoords != null)
+            Console.WriteLine($"Deploy Click at Canvas Coords: ({e.OffsetX}, {e.OffsetY}) => Real Coords: ({realCoords.X}, {realCoords.Y})");
+            _deployedUnits.Add(new UnitAppDto
             {
-                _deployedUnits.Add(new UnitAppDto
-                {
-                    DefinitionId = _selectedDefinitionId,
-                    FactionName = _selectedFactionApp.Name,
-                    X = realCoords.X,
-                    Y = realCoords.Y,
-                    ExcelFileName = _pendingExcelName,
-                    ExcelDatabase64 = _pendingExcelBase64
-                });
+                DefinitionId = _selectedDefinitionId,
+                FactionName = _selectedFactionApp.Name,
+                X = realCoords.X,
+                Y = realCoords.Y,
+                ExcelFileName = _pendingExcelName,
+                ExcelDatabase64 = _pendingExcelBase64
+            });
 
-                _pendingExcelBase64 = "";
-                _pendingExcelName = "";
-            }
+            _pendingExcelBase64 = "";
+            _pendingExcelName = "";
         }
     }
 
@@ -438,10 +436,13 @@
 
     private async Task SaveCampaign()
     {
-        if (MissingRequirements.Any())
-        {
-            return;
-        }
+        if (MissingRequirements.Any()) return;
+
+        _isScanning = true; 
+        StateHasChanged();
+
+        var zoneCoordinates = _recordedZones.Select(z => new { name = z.Name, x = z.X, y = z.Y }).ToList();
+        var adjacencyGraph = await JsRuntime.InvokeAsync<Dictionary<string, List<string>>>("mapTools.calculateAdjacency", zoneCoordinates, 15);
 
         var gameState = new GameStateAppDto
         {
@@ -450,35 +451,33 @@
             Units = _deployedUnits,
             UnitDefinitions = _unitDefinitions,
             CurrentTurnFaction = _startingFactionApp.Name,
-            TurnNumber = 1
+            TurnNumber = 1,
+            AdjacencyGraph = adjacencyGraph 
         };
 
-        var jsonString = JsonSerializer.Serialize(gameState);
+        var jsonString = JsonSerializer.Serialize(gameState, new JsonSerializerOptions {PropertyNamingPolicy = JsonNamingPolicy.CamelCase});
 
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent(_model.Name), "Name");
         content.Add(new StringContent(jsonString), "GameStateJson");
         content.Add(new StringContent(_myFactionApp.Name), "CreatorFactionName");
 
-        var imgContent = new ByteArrayContent(_fileBytes);
+        var imgContent = new ByteArrayContent(_fileBytes); 
         imgContent.Headers.ContentType = new MediaTypeHeaderValue(_fileContentType);
         content.Add(imgContent, "MapImage", "map.png");
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "api/Campaign/create");
-        request.Content = content;
+        var request = new HttpRequestMessage(HttpMethod.Post, "api/Campaign/create") { Content = content };
         request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
         var response = await Http.SendAsync(request);
 
-        if (response.IsSuccessStatusCode)
-        {
+        _isScanning = false;
+
+        if (response.IsSuccessStatusCode) {
             await _paper.TossAndNavigate("/home");
-        }
-        else
-        {
+        } else {
             _errorMessage = "Deployment Failed. Check server logs.";
         }
     }
-
     private async Task HandleIconUnitUpload(InputFileChangeEventArgs e)
     {
         if (string.IsNullOrEmpty(_unitName))

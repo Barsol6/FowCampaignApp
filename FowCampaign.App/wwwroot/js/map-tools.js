@@ -258,14 +258,16 @@
             const og = originalData[idx + 1];
             const ob = originalData[idx + 2];
             const diff = Math.abs(or - startR) + Math.abs(og - startG) + Math.abs(ob - startB);
-            return diff < 130;
+            return diff < tolerance ;
         };
 
         const queue = [[effectiveX, effectiveY]];
         visited[effectiveY * width + effectiveX] = 1;
+        
+        let head = 0;
 
-        while (queue.length > 0) {
-            const [x, y] = queue.shift();
+        while (head < queue.length) {
+            const [x, y] = queue[head++];
             const pixelIndex = (y * width + x) * 4;
 
             data[pixelIndex] = fillRgb.r;
@@ -327,5 +329,183 @@
 
       
         return { x: offsetX, y: offsetY };
+    },
+
+    getCanvasDataUrl: () => {
+        const canvas = window.mapTools.canvas;
+        if (!canvas) return null;
+        return canvas.toDataURL('image/png', 1.0);
+    },
+
+    calculateAdjacency: (zones, borderThickness = 15) => {
+        const canvas = window.mapTools.canvas;
+        const ctx = window.mapTools.ctx;
+        if (!canvas || !ctx || !zones || zones.length === 0) return {};
+
+        const width = canvas.width;
+        const height = canvas.height;
+        const imgData = ctx.getImageData(0, 0, width, height).data;
+
+        const zoneMap = new Int16Array(width * height).fill(-1);
+
+        const qX = []; const qY = []; const qZone = []; const qDist = [];
+        let head = 0;
+
+        for (let i = 0; i < zones.length; i++) {
+            const z = zones[i];
+            let startX = Math.floor(z.x);
+            let startY = Math.floor(z.y);
+            const startIdx = (startY * width + startX) * 4;
+            const sr = imgData[startIdx], sg = imgData[startIdx + 1], sb = imgData[startIdx + 2];
+
+            const localQX = [startX]; const localQY = [startY];
+            let localHead = 0;
+
+            zoneMap[startY * width + startX] = i;
+            qX.push(startX); qY.push(startY); qZone.push(i); qDist.push(0);
+
+            while (localHead < localQX.length) {
+                const cx = localQX[localHead];
+                const cy = localQY[localHead];
+                localHead++;
+
+                const neighbors = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
+                for (let [nx, ny] of neighbors) {
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                        const idx = ny * width + nx;
+                        if (zoneMap[idx] === -1) {
+                            const px = idx * 4;
+                            const diff = Math.abs(imgData[px] - sr) + Math.abs(imgData[px + 1] - sg) + Math.abs(imgData[px + 2] - sb);
+                            if (diff < 60) {
+                                zoneMap[idx] = i;
+                                localQX.push(nx); localQY.push(ny);
+                                qX.push(nx); qY.push(ny); qZone.push(i); qDist.push(0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const adjacencyList = {};
+        for (let z of zones) adjacencyList[z.name] = new Set();
+
+        while (head < qX.length) {
+            const cx = qX[head]; const cy = qY[head];
+            const zoneIndex = qZone[head]; const dist = qDist[head];
+            head++;
+
+            if (dist >= borderThickness) continue;
+
+            const neighbors = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
+            for (let [nx, ny] of neighbors) {
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    const idx = ny * width + nx;
+                    const neighborZone = zoneMap[idx];
+
+                    if (neighborZone === -1) {
+                        zoneMap[idx] = zoneIndex;
+                        qX.push(nx); qY.push(ny); qZone.push(zoneIndex); qDist.push(dist + 1);
+                    } else if (neighborZone !== zoneIndex) {
+                        adjacencyList[zones[zoneIndex].name].add(zones[neighborZone].name);
+                        adjacencyList[zones[neighborZone].name].add(zones[zoneIndex].name);
+                    }
+                }
+            }
+        }
+
+        const finalGraph = {};
+        for (let key in adjacencyList) finalGraph[key] = Array.from(adjacencyList[key]);
+        return finalGraph;
+    },
+
+    calculateAdjacency: (zones, borderThickness = 15) => {
+        const canvas = window.mapTools.canvas;
+        const ctx = window.mapTools.ctx;
+        if (!canvas || !ctx || !zones || zones.length === 0) return {};
+
+        const width = canvas.width;
+        const height = canvas.height;
+        const imgData = ctx.getImageData(0, 0, width, height).data;
+        const zoneMap = new Int16Array(width * height).fill(-1);
+
+        const qX = []; const qY = []; const qZone = []; const qDist = [];
+        let head = 0;
+
+        for (let i = 0; i < zones.length; i++) {
+            let cx = Math.floor(zones[i].x);
+            let cy = Math.floor(zones[i].y);
+
+            const startIdx = (cy * width + cx) * 4;
+            const sr = imgData[startIdx], sg = imgData[startIdx + 1], sb = imgData[startIdx + 2];
+
+            const localQX = [cx]; const localQY = [cy];
+            let localHead = 0;
+            zoneMap[cy * width + cx] = i;
+
+            qX.push(cx); qY.push(cy); qZone.push(i); qDist.push(0);
+
+            while (localHead < localQX.length) {
+                const currX = localQX[localHead];
+                const currY = localQY[localHead];
+                localHead++;
+
+                const neighbors = [[currX + 1, currY], [currX - 1, currY], [currX, currY + 1], [currX, currY - 1]];
+                for (let n = 0; n < neighbors.length; n++) {
+                    const nx = neighbors[n][0];
+                    const ny = neighbors[n][1];
+
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                        const idx = ny * width + nx;
+                        if (zoneMap[idx] === -1) {
+                            const px = idx * 4;
+                            const diff = Math.abs(imgData[px] - sr) + Math.abs(imgData[px+1] - sg) + Math.abs(imgData[px+2] - sb);
+                            if (diff < 80) {
+                                zoneMap[idx] = i;
+                                localQX.push(nx); localQY.push(ny);
+                                qX.push(nx); qY.push(ny); qZone.push(i); qDist.push(0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const adjacencyList = {};
+        for (let i = 0; i < zones.length; i++) {
+            adjacencyList[zones[i].name] = new Set();
+        }
+
+        while (head < qX.length) {
+            const cx = qX[head]; const cy = qY[head];
+            const zoneIndex = qZone[head]; const dist = qDist[head];
+            head++;
+
+            if (dist >= borderThickness) continue;
+
+            const neighbors = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
+            for (let n = 0; n < neighbors.length; n++) {
+                const nx = neighbors[n][0]; const ny = neighbors[n][1];
+
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    const idx = ny * width + nx;
+                    const neighborZone = zoneMap[idx];
+
+                    if (neighborZone === -1) {
+                        zoneMap[idx] = zoneIndex; 
+                        qX.push(nx); qY.push(ny); qZone.push(zoneIndex); qDist.push(dist + 1);
+                    } else if (neighborZone !== zoneIndex) {
+                        adjacencyList[zones[zoneIndex].name].add(zones[neighborZone].name);
+                        adjacencyList[zones[neighborZone].name].add(zones[zoneIndex].name);
+                    }
+                }
+            }
+        }
+
+        const finalGraph = {};
+        for (let key in adjacencyList) {
+            finalGraph[key] = Array.from(adjacencyList[key]);
+        }
+        return finalGraph;
     }
 };
