@@ -507,5 +507,107 @@
             finalGraph[key] = Array.from(adjacencyList[key]);
         }
         return finalGraph;
+    },
+
+    assignUnitsToZones: (units, zones) => {
+        const canvas = window.mapTools.canvas;
+        const ctx = window.mapTools.ctx;
+        if (!canvas || !ctx || !zones || zones.length === 0 || !units || units.length === 0) return [];
+
+        const width = canvas.width;
+        const height = canvas.height;
+        const imgData = ctx.getImageData(0, 0, width, height).data;
+
+        const zoneMap = new Int32Array(width * height).fill(-1);
+        
+        const qX = [];
+        const qY = [];
+        const qZone = [];
+        const startColors = [];
+
+        for (let i = 0; i < zones.length; i++) {
+            let cx = Math.floor(zones[i].x);
+            let cy = Math.floor(zones[i].y);
+            const startIdx = (cy * width + cx) * 4;
+
+            startColors.push({
+                r: imgData[startIdx],
+                g: imgData[startIdx + 1],
+                b: imgData[startIdx + 2]
+            });
+
+            zoneMap[cy * width + cx] = i;
+            qX.push(cx);
+            qY.push(cy);
+            qZone.push(i);
+        }
+
+        let head = 0;
+        while (head < qX.length) {
+            const currX = qX[head];
+            const currY = qY[head];
+            const zId = qZone[head];
+            head++;
+
+            const sc = startColors[zId];
+            const neighbors = [[currX + 1, currY], [currX - 1, currY], [currX, currY + 1], [currX, currY - 1]];
+
+            for (let n = 0; n < neighbors.length; n++) {
+                const nx = neighbors[n][0];
+                const ny = neighbors[n][1];
+
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    const idx = ny * width + nx;
+
+                    if (zoneMap[idx] === -1) {
+                        const px = idx * 4;
+                        const diff = Math.abs(imgData[px] - sc.r) + Math.abs(imgData[px+1] - sc.g) + Math.abs(imgData[px+2] - sc.b);
+
+                        if (diff < 80) { 
+                            zoneMap[idx] = zId;
+                            qX.push(nx);
+                            qY.push(ny);
+                            qZone.push(zId);
+                        }
+                    }
+                }
+            }
+        }
+
+        const result = [];
+        for (let i = 0; i < units.length; i++) {
+            let ux = Math.floor(units[i].x !== undefined ? units[i].x : units[i].X);
+            let uy = Math.floor(units[i].y !== undefined ? units[i].y : units[i].Y);
+            let uId = units[i].id !== undefined ? units[i].id : units[i].Id;
+
+            if (ux >= 0 && ux < width && uy >= 0 && uy < height) {
+                let zIdx = zoneMap[uy * width + ux];
+
+      
+                if (zIdx === -1) {
+                    let found = false;
+                    for(let r = 1; r <= 15 && !found; r++) {
+                        for(let dx = -r; dx <= r && !found; dx++) {
+                            for(let dy = -r; dy <= r && !found; dy++) {
+                                if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+                                let nx = ux + dx, ny = uy + dy;
+                                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                                    let nIdx = zoneMap[ny * width + nx];
+                                    if (nIdx !== -1) {
+                                        zIdx = nIdx;
+                                        found = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (zIdx !== -1 && uId !== undefined) {
+                    result.push({ unitId: String(uId), zoneId: zIdx });
+                }
+            }
+        }
+        return result;
     }
 };
