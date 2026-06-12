@@ -123,9 +123,10 @@
                 </div>
                 <div class="canvas-wrapper"
                      style="position: relative; width: fit-content; margin: 0 auto; display: block; "
+                     @onclick="HandleCanvasClick"
                      @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
-                    <canvas id="mapCanvas" @onclick="HandleCanvasClick"></canvas>
+                    <canvas id="mapCanvas" style="display: block; pointer-events:none;"></canvas>
                     @foreach (var unit in _deployedUnits)
                     {
                         var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
@@ -136,12 +137,12 @@
                         {
                             <div class="map-unit @(isBeingDragged ? "is-dragging" : "")"
                                  style="position: absolute;
-                                     left: @(unit.X)px;
-                                 top: @(unit.Y)px;
-                                 transform: translate(-50%, -50%);
-                                 border: 2px solid @factionColor;
-                                 box-shadow: 0 0 5px @factionColor;
-                                 pointer-events: @(isBeingDragged ? "none" : "auto");"
+                 left: @((unit.X / _mapRealWidth * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;
+                 top: @((unit.Y / _mapRealHeight * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;
+             transform: translate(-50%, -50%);
+             border: 2px solid @factionColor;
+             box-shadow: 0 0 5px @factionColor;
+             pointer-events: @(isBeingDragged ? "none" : "auto");"
                                  @onmousedown="() => StartDrag(unit)"
                                  @onmousedown:stopPropagation="true"
                                  @oncontextmenu="() => DeleteUnit(unit)"
@@ -266,9 +267,17 @@
     private string _pendingExcelBase64 = string.Empty;
     private string _pendingExcelName = string.Empty;
     private bool _shouldRenderMap;
-    private readonly double _mapRealWidth = 1;
+
+    public class MapDimensions
+    {
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+
+    private double _mapRealWidth = 1;
     private double _mapRealHeight = 1;
-    private double _dragScaleFactor = 1.0;
+    private double _displayScaleFactorX = 1.0;
+    private double _displayScaleFactorY = 1.0;
 
 
     private List<string> MissingRequirements
@@ -290,7 +299,18 @@
         if (_shouldRenderMap)
         {
             _shouldRenderMap = false;
-            await JsRuntime.InvokeVoidAsync("mapTools.initMap", "mapCanvas", _imageDataUrl);
+            var realDims = await JsRuntime.InvokeAsync<MapDimensions>("mapTools.initMap", "mapCanvas", _imageDataUrl);
+            if (realDims.Width > 0 && realDims.Height > 0)
+            {
+                _mapRealWidth = realDims.Width;
+                _mapRealHeight = realDims.Height;
+                var visualDims = await JsRuntime.InvokeAsync<MapDimensions>("mapTools.getClientDimensions", "mapCanvas");
+                if (visualDims.Width > 0 && visualDims.Height > 0)
+                {
+                    _displayScaleFactorX = visualDims.Width / _mapRealWidth;
+                    _displayScaleFactorY = visualDims.Height / _mapRealHeight;
+                }
+            }
         }
     }
 
@@ -360,25 +380,46 @@
                     ? closestLabel.Label.Text
                     : "UNKNOWN SECTOR";
 
-                _recordedZones.Add(new ZoneSeedAppDto
+                var nearbyExistingZone = _recordedZones
+                    .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 5);
+
+                if (nearbyExistingZone != null)
                 {
-                    X = realCoords.X,
-                    Y = realCoords.Y,
-                    FactionName = _selectedFactionApp.Name,
-                    Name = _regionName
-                });
+                    nearbyExistingZone.FactionName = _selectedFactionApp.Name;
+                    nearbyExistingZone.X = realCoords.X;
+                    nearbyExistingZone.Y = realCoords.Y;
+                    nearbyExistingZone.Name = _regionName;
+                }
+                else
+                {
+                    _recordedZones.Add(new ZoneSeedAppDto
+                    {
+                        X = realCoords.X,
+                        Y = realCoords.Y,
+                        FactionName = _selectedFactionApp.Name,
+                        Name = _regionName
+                    });
+                }
             }
         }
         else if (_currentTool == "DEPLOY")
         {
             if (string.IsNullOrEmpty(_selectedDefinitionId) && _draggingUnitApp != null) return;
 
+    
+            var realCoords  = await JsRuntime.InvokeAsync<PaintCoord>(
+                "mapTools.getCanvasCoordinates",
+                e.OffsetX,
+                e.OffsetY
+            );
+
+            Console.WriteLine($"Deploy Click at Canvas Coords: ({e.OffsetX}, {e.OffsetY}) => Real Coords: ({realCoords.X}, {realCoords.Y})");
             _deployedUnits.Add(new UnitAppDto
             {
                 DefinitionId = _selectedDefinitionId,
                 FactionName = _selectedFactionApp.Name,
-                X = e.OffsetX,
-                Y = e.OffsetY,
+                X = realCoords.X,
+                Y = realCoords.Y,
                 ExcelFileName = _pendingExcelName,
                 ExcelDatabase64 = _pendingExcelBase64
             });
@@ -395,10 +436,13 @@
 
     private async Task SaveCampaign()
     {
-        if (MissingRequirements.Any())
-        {
-            return;
-        }
+        if (MissingRequirements.Any()) return;
+
+        _isScanning = true; 
+        StateHasChanged();
+
+        var zoneCoordinates = _recordedZones.Select(z => new { name = z.Name, x = z.X, y = z.Y }).ToList();
+        var adjacencyGraph = await JsRuntime.InvokeAsync<Dictionary<string, List<string>>>("mapTools.calculateAdjacency", zoneCoordinates, 15);
 
         var gameState = new GameStateAppDto
         {
@@ -407,40 +451,33 @@
             Units = _deployedUnits,
             UnitDefinitions = _unitDefinitions,
             CurrentTurnFaction = _startingFactionApp.Name,
-            TurnNumber = 1
+            TurnNumber = 1,
+            AdjacencyGraph = adjacencyGraph
         };
 
-        /*var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
-        var jsonString = JsonSerializer.Serialize(gameState, jsonOptions);
-        Console.WriteLine(jsonString);*/
-
-
-        var jsonString = JsonSerializer.Serialize(gameState);
+        var jsonString = JsonSerializer.Serialize(gameState, new JsonSerializerOptions {PropertyNamingPolicy = JsonNamingPolicy.CamelCase});
 
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent(_model.Name), "Name");
         content.Add(new StringContent(jsonString), "GameStateJson");
         content.Add(new StringContent(_myFactionApp.Name), "CreatorFactionName");
 
-        var imgContent = new ByteArrayContent(_fileBytes);
+        var imgContent = new ByteArrayContent(_fileBytes); 
         imgContent.Headers.ContentType = new MediaTypeHeaderValue(_fileContentType);
         content.Add(imgContent, "MapImage", "map.png");
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "api/Campaign/create");
-        request.Content = content;
+        var request = new HttpRequestMessage(HttpMethod.Post, "api/Campaign/create") { Content = content };
         request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
         var response = await Http.SendAsync(request);
 
-        if (response.IsSuccessStatusCode)
-        {
+        _isScanning = false;
+
+        if (response.IsSuccessStatusCode) {
             await _paper.TossAndNavigate("/home");
-        }
-        else
-        {
+        } else {
             _errorMessage = "Deployment Failed. Check server logs.";
         }
     }
-
     private async Task HandleIconUnitUpload(InputFileChangeEventArgs e)
     {
         if (string.IsNullOrEmpty(_unitName))
@@ -466,27 +503,23 @@
         _unitName = string.Empty;
     }
 
-    private async Task StartDrag(UnitAppDto unitApp)
+    private void StartDrag(UnitAppDto unitApp)
     {
         if (_currentTool == "DEPLOY")
         {
             _draggingUnitApp = unitApp;
-
-            var visualDims = await JsRuntime.InvokeAsync<Game.MapDimensions>("mapTools.getCanvasDimensions", "gameCanvas");
-
-            if (visualDims.Width > 0)
-            {
-                _dragScaleFactor = _mapRealWidth / visualDims.Width;
-            }
         }
     }
 
-    private async Task HandleWrapperMouseMove(MouseEventArgs e)
+    private void HandleWrapperMouseMove(MouseEventArgs e)
     {
         if (_draggingUnitApp != null)
         {
-            _draggingUnitApp.X = e.OffsetX * _dragScaleFactor;
-            _draggingUnitApp.Y = e.OffsetY * _dragScaleFactor;
+            if (_displayScaleFactorX > 0 && _displayScaleFactorY > 0)
+            {
+                _draggingUnitApp.X = e.OffsetX / _displayScaleFactorX;
+                _draggingUnitApp.Y = e.OffsetY / _displayScaleFactorY;
+            }
         }
     }
 

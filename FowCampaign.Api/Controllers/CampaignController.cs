@@ -3,10 +3,11 @@ using FowCampaign.Api.DTO;
 using FowCampaign.Api.Modules.Database;
 using FowCampaign.Api.Modules.Database.Entities.Campaign;
 using FowCampaign.Api.Modules.Database.Entities.User;
-using FowCampaign.App.DTO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TurnPhase = FowCampaign.Api.DTO.TurnPhase;
+using UnitManeuver = FowCampaign.Api.DTO.UnitManeuver;
 
 namespace FowCampaign.Api.Controllers;
 
@@ -16,12 +17,17 @@ namespace FowCampaign.Api.Controllers;
 public class CampaignController : ControllerBase
 {
     private readonly FowCampaignContext _context;
+    
+    private readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     public CampaignController(FowCampaignContext context)
     {
         _context = context;
     }
-
 
     [HttpPost("create")]
     public async Task<IActionResult> CreateCampaign([FromForm] CreateCampaignApiDto request)
@@ -32,7 +38,7 @@ public class CampaignController : ControllerBase
         var user = _context.Users.FirstOrDefault(u => u.Username == nameClaim);
         if (user is null) return NotFound();
 
-        if (request.MapImage is null || request.MapImage.Length == 0) return BadRequest("Map image is required");
+        if (request.MapImage.Length == 0) return BadRequest("Map image is required");
 
         if (string.IsNullOrEmpty(request.CreatorFactionName)) return BadRequest("You must select a faction to play.");
 
@@ -54,7 +60,8 @@ public class CampaignController : ControllerBase
             JoinCode = joinCode,
             MapFileName = fileName,
             GameStateJson = request.GameStateJson,
-            OwnerId = user.Id
+            OwnerId = user.Id,
+            CreatedAt = DateTime.UtcNow
         };
 
         var player = new CampaignPlayer
@@ -72,7 +79,6 @@ public class CampaignController : ControllerBase
 
         return Ok(new { message = "Campaign Deployed", joinCode });
     }
-
 
     [HttpGet("GetCampaigns")]
     public async Task<IActionResult> GetCampaigns()
@@ -144,6 +150,53 @@ public class CampaignController : ControllerBase
         });
     }
 
+    [HttpPost("{Id}/maneuver")]
+    [Authorize]
+    public async Task<IActionResult> SubmitManeuvers(int id, [FromBody] List<UnitManeuver> maneuvers)
+    {
+        var username = User.Identity?.Name;
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        if (user == null) return Unauthorized();
+
+        var campaign = await _context.Campaigns.Include(c => c.Players)
+            .FirstOrDefaultAsync(c => c.Id == id);
+        if (campaign == null) return NotFound("Campaign Not Found");
+
+        var playerRecord = campaign.Players.FirstOrDefault(p => p.UserId == user.Id);
+        if (playerRecord == null) return Unauthorized("You are not a member of this campaign");
+
+        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson, _jsonOptions);
+        if (state == null) return BadRequest("Invalid game state");
+
+        if (state.Phase != TurnPhase.Moving) return BadRequest("It is not the moving phase.");
+
+        state.PendingManeuvers[playerRecord.FactionName] = maneuvers;
+
+        var allPlayersMoved = campaign.Players.All(p => state.PendingManeuvers.ContainsKey(p.FactionName));
+
+        if (allPlayersMoved)
+        {
+            foreach (var playerManeuvers in state.PendingManeuvers)
+            foreach (var maneuver in playerManeuvers.Value)
+            {
+                var unit = state.Units.FirstOrDefault(u => u.Id == maneuver.UnitId);
+                if (unit != null)
+                {
+                    unit.X = maneuver.TargetX;
+                    unit.Y = maneuver.TargetY;
+                }
+            }
+
+            state.PendingManeuvers.Clear();
+            state.Phase = TurnPhase.Combat;
+        }
+
+        campaign.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = "Maneuvers submitted." });
+    }
+
     [HttpPost("{Id}/turn")]
     [Authorize]
     public async Task<IActionResult> EndTurn(int id, [FromBody] EndTurnRequestApiDto updatedUnits)
@@ -159,7 +212,7 @@ public class CampaignController : ControllerBase
         var playerRecord = campaign.Players.FirstOrDefault(p => p.UserId == user.Id);
         if (playerRecord == null) return Unauthorized("You are not a member of this campaign");
 
-        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson);
+        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson, _jsonOptions);
         if (state == null) return BadRequest("Invalid game state");
 
         if (state.CurrentTurnFaction != playerRecord.FactionName)
@@ -176,7 +229,9 @@ public class CampaignController : ControllerBase
 
         if (nextFactionIndex == 0) state.TurnNumber++;
 
-        campaign.GameStateJson = JsonSerializer.Serialize(state);
+        state.Phase = TurnPhase.Moving; 
+
+        campaign.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
         campaign.CreatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
@@ -205,7 +260,7 @@ public class CampaignController : ControllerBase
         if (campaign.Players.Any(p => p.UserId == user.Id))
             return Ok(new { campaignId = campaign.Id, message = "Welcome back, Commander." });
 
-        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson);
+        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson, _jsonOptions);
         if (state == null) return BadRequest("Invalid game state");
 
         var targetFactionName = "";
@@ -233,10 +288,9 @@ public class CampaignController : ControllerBase
         var campaign = await _context.Campaigns.FirstOrDefaultAsync(c => c.JoinCode == cleanCode);
 
         if (campaign == null) return NotFound("Unknown Operation Code.");
-
-
-        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson);
-        var factionNames = state?.Factions.Select(f => f.Name).ToList() ?? new List<string>();
+        
+        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson, _jsonOptions);
+        var factionNames = state?.Factions.Select(f => f.Name).ToList();
 
         return Ok(new
         {
@@ -244,7 +298,6 @@ public class CampaignController : ControllerBase
             Factions = factionNames
         });
     }
-
 
     [HttpDelete("delete/{id}")]
     [Authorize]
@@ -284,8 +337,7 @@ public class CampaignController : ControllerBase
             battleResultApiDto.MajorPoints,
             battleResultApiDto.MinorPoints,
             battleResultApiDto.UpdatedUnitFiles
-        });
-
+        }, _jsonOptions);
 
         var newLog = new BattleLog
         {
@@ -298,17 +350,31 @@ public class CampaignController : ControllerBase
 
         _context.BattleLogs.Add(newLog);
 
-
-        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson);
-        if (state != null && battleResultApiDto.UpdatedUnitFiles.Any())
+        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson, _jsonOptions);
+        if (state != null)
         {
-            foreach (var unitFile in battleResultApiDto.UpdatedUnitFiles)
+            if (battleResultApiDto.UpdatedUnitFiles.Any())
             {
-                var targetUnits = state.Units.FirstOrDefault(u => u.Id == unitFile.Key);
-                if (targetUnits != null) targetUnits.ExcelDatabase64 = unitFile.Value;
+                foreach (var unitFile in battleResultApiDto.UpdatedUnitFiles)
+                {
+                    var targetUnits = state.Units.FirstOrDefault(u => u.Id == unitFile.Key);
+                    if (targetUnits != null) targetUnits.ExcelDatabase64 = unitFile.Value;
+                }
             }
 
-            campaign.GameStateJson = JsonSerializer.Serialize(state);
+            var propertyInfo = typeof(GameStateDto).GetProperty("BattleResults");
+            if (propertyInfo != null)
+            {
+                var list = propertyInfo.GetValue(state) as System.Collections.IList;
+                if (list == null)
+                {
+                    list = new List<BattleResultApiDto>();
+                    propertyInfo.SetValue(state, list);
+                }
+                list.Add(battleResultApiDto);
+            }
+
+            campaign.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
         }
 
         await _context.SaveChangesAsync();

@@ -1661,4 +1661,101 @@ canvas {
 .mb-5 {
     margin-bottom: 5px;
 }
+.stance-modal-paper {
+    background: var(--paper-bg);
+    border: 2px solid var(--wood-light);
+    padding: 30px;
+    width: 400px;
+    text-align: center;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.7);
+    font-family: 'Courier New', monospace;
+    z-index: 5001;
+    pointer-events: auto;
+    position: relative;
+}
 
+.stance-modal-title {
+    font-family: 'Black Ops One', cursive;
+    color: var(--stamp-red);
+    margin-bottom: 5px;
+    font-size: 1.5rem;
+    border-bottom: 2px solid var(--ink-color);
+    padding-bottom: 10px;
+}
+
+.stance-zone-name {
+    font-weight: bold;
+    font-size: 1.1rem;
+    margin-bottom: 20px;
+    color: var(--steel-gray);
+}
+
+.btn-stance {
+    background-color: #2c3e50;
+    color: #ecf0f1;
+    border: 2px solid #1a252f;
+    margin-bottom: 10px;
+    font-family: 'Black Ops One', cursive;
+    font-size: 1.1rem;
+    letter-spacing: 2px;
+    transition: all 0.2s ease-in-out;
+}
+
+.btn-stance:hover {
+    background-color: #34495e;
+    transform: scale(1.02);
+    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.btn-stance-assault { border-left: 5px solid #c0392b; }
+.btn-stance-maneuver { border-left: 5px solid #f39c12; }
+.btn-stance-defend { border-left: 5px solid #2980b9; }
+
+.btn-archive {
+    background-color: #5d4037;
+    border-color: #3e2723;
+    color: #d7c6a5;
+    margin-bottom: 15px;
+}
+
+.btn-archive:hover {
+    background-color: #4e342e;
+}
+
+.archive-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.archive-table th {
+    background-color: #222;
+    color: #d7c6a5;
+    padding: 10px;
+    font-family: 'Black Ops One', cursive;
+    border-bottom: 2px solid #555;
+    text-align: left;
+}
+
+.archive-table td {
+    padding: 10px;
+    border-bottom: 1px solid #333;
+    color: #ecf0f1;
+}
+
+.archive-table-row:hover {
+    background-color: #2c2c2c;
+}
+
+.stance-badge {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    background: #444;
+    color: #fff;
+}
+
+.mt-15 { margin-top: 15px; }
+.mt-20 { margin-top: 20px; }

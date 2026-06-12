@@ -1,4 +1,4 @@
-﻿namespace FowCampaign.App.DTO;
+﻿namespace FowCampaign.Api.DTO;
 
 public class UnitApiDto
 {
@@ -7,6 +7,7 @@ public class UnitApiDto
     public string FactionName { get; set; }
     public double X { get; set; }
     public double Y { get; set; }
+    public double Scale { get; set; } = 1.0;
 
     public string ExcelFileName { get; set; } = string.Empty;
     public string ExcelDatabase64 { get; set; } = string.Empty;
