@@ -1,4 +1,6 @@
-﻿namespace FowCampaign.App.DTO;
+﻿using FowCampaign.App.DTO;
+
+namespace FowCampaign.Api.DTO;
 
 public class EndTurnRequestApiDto
 {
