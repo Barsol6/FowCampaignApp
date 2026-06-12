@@ -3,11 +3,11 @@ using FowCampaign.Api.DTO;
 using FowCampaign.Api.Modules.Database;
 using FowCampaign.Api.Modules.Database.Entities.Campaign;
 using FowCampaign.Api.Modules.Database.Entities.User;
-using FowCampaign.App.DTO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TurnPhase = FowCampaign.Api.DTO.TurnPhase;
+using UnitManeuver = FowCampaign.Api.DTO.UnitManeuver;
 
 namespace FowCampaign.Api.Controllers;
 
@@ -33,7 +33,7 @@ public class CampaignController : ControllerBase
         var user = _context.Users.FirstOrDefault(u => u.Username == nameClaim);
         if (user is null) return NotFound();
 
-        if (request.MapImage is null || request.MapImage.Length == 0) return BadRequest("Map image is required");
+        if (request.MapImage.Length == 0) return BadRequest("Map image is required");
 
         if (string.IsNullOrEmpty(request.CreatorFactionName)) return BadRequest("You must select a faction to play.");
 
@@ -55,7 +55,8 @@ public class CampaignController : ControllerBase
             JoinCode = joinCode,
             MapFileName = fileName,
             GameStateJson = request.GameStateJson,
-            OwnerId = user.Id
+            OwnerId = user.Id,
+            CreatedAt = DateTime.UtcNow
         };
 
         var player = new CampaignPlayer
@@ -282,10 +283,9 @@ public class CampaignController : ControllerBase
         var campaign = await _context.Campaigns.FirstOrDefaultAsync(c => c.JoinCode == cleanCode);
 
         if (campaign == null) return NotFound("Unknown Operation Code.");
-
-
-        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson);
-        var factionNames = state?.Factions.Select(f => f.Name).ToList() ?? new List<string>();
+        
+        var state = JsonSerializer.Deserialize<GameStateDto>(campaign.GameStateJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var factionNames = state?.Factions.Select(f => f.Name).ToList();
 
         return Ok(new
         {

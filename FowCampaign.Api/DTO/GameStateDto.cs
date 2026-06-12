@@ -1,4 +1,4 @@
-﻿using FowCampaign.App.DTO;
+﻿using FowCampaign.Api.DTO;
 
 namespace FowCampaign.Api.DTO;
 

@@ -1,4 +1,4 @@
-﻿namespace FowCampaign.App.DTO;
+﻿namespace FowCampaign.Api.DTO;
 
 public class FactionApiDto
 {

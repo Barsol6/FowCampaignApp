@@ -452,7 +452,7 @@
             UnitDefinitions = _unitDefinitions,
             CurrentTurnFaction = _startingFactionApp.Name,
             TurnNumber = 1,
-            AdjacencyGraph = adjacencyGraph 
+            AdjacencyGraph = adjacencyGraph
         };
 
         var jsonString = JsonSerializer.Serialize(gameState, new JsonSerializerOptions {PropertyNamingPolicy = JsonNamingPolicy.CamelCase});

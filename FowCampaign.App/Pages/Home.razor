@@ -209,6 +209,7 @@
         if (response.IsSuccessStatusCode)
         {
             var result = await response.Content.ReadFromJsonAsync<CampaignPreviewAppDto>();
+            Console.WriteLine(result.Name + " " + result.Factions.Count);
             _foundCampaignName = result.Name;
             _foundFactions = result.Factions;
             _joinStep = 2;
