@@ -6,16 +6,11 @@
 @using FowCampaign.App.Shared
 
 @attribute [Authorize]
-
 @layout HomeLayout
-
 
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
-
-
-
 
 <PaperSheet @ref="_paper">
 
@@ -40,8 +35,7 @@
     {
         @if (_stateApp != null)
         {
-            <div class="turn-banner"
-                 style="background-color: @(_ = GetFactionColor(_stateApp.CurrentTurnFaction));">
+            <div class="turn-banner" style="background-color: #333; color: white;">
                 TURN @(_stateApp.TurnNumber): @(_stateApp.Phase.ToString().ToUpper())
             </div>
         }
@@ -49,17 +43,18 @@
         <div class="game-container">
 
             <div class="map-panel">
-
                 <div class="map-sticky-header">
                     <span>OP: @_gameDataApp.Name</span>
                     <span>Playing As: <span style="color:yellow;">@_gameDataApp.MyFactionName</span></span>
                 </div>
 
-                <div class="canvas-container" style="position: relative; width: fit-content; height: fit-content;"
+                <div class="canvas-container"
+                     style="position: relative; width: fit-content; height: fit-content;"
                      @onmousemove="HandleWrapperMouseMove"
                      @onmouseup="HandleWrapperMouseUp">
 
                     <canvas id="gameCanvas" class="game-canvas"></canvas>
+
                     @if (_isProcessingMap)
                     {
                         <div class="map-overlay-blocker">
@@ -71,23 +66,24 @@
                             </div>
                         </div>
                     }
-                    @if (_stateApp != null)
+
+                    @if (_stateApp?.Units != null)
                     {
                         @foreach (var unit in _stateApp.Units)
                         {
                             var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
-
                             var isMyUnit = unit.FactionName == _gameDataApp.MyFactionName;
-                            var canDrag = isMyUnit && _stateApp.Phase == TurnPhase.Moving;
+
+                            var canDrag = isMyUnit && (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.Combat);
 
                             var dragClass = canDrag ? "unit-draggable" : "unit-locked";
                             var pointerClass = _draggingUnitApp != null ? "pointer-events-none" : "";
                             var leftPercent = unit.X / _mapRealWidth * 100.0;
                             var topPercent = unit.Y / _mapRealHeight * 100.0;
-
                             var factionColor = GetFactionColor(unit.FactionName);
-                            var positionStyle = $"left: {leftPercent.ToString("F2", CultureInfo.InvariantCulture)}%; top: {topPercent.ToString("F2", CultureInfo.InvariantCulture)}%; border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";
 
+                            var currentScale = unit.Scale > 0 ? unit.Scale : 1.0;
+                            var positionStyle = $"left: {leftPercent.ToString("F2", CultureInfo.InvariantCulture)}%; top: {topPercent.ToString("F2", CultureInfo.InvariantCulture)}%; transform: scale({currentScale.ToString(CultureInfo.InvariantCulture)}); border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";
 
                             if (def != null)
                             {
@@ -95,7 +91,6 @@
                                      style="@positionStyle"
                                      @onmousedown="() => StartDrag(unit)"
                                      @onmousedown:stopPropagation="true">
-
                                     <img src="@def.ImageBase64" style="width:100%; height:100%; object-fit:contain;"
                                          title="@def.Name"/>
                                 </div>
@@ -106,25 +101,31 @@
             </div>
 
             <div class="intel-sidebar">
-
                 <div class="sidebar-section">
                     <h4 class="section-header">COMMAND</h4>
 
-                    <button class="btn-full btn-open-roster" @onclick="() => _showRosterModal = true">
-                        OPEN UNIT ROSTER
-                    </button>
+                    <button class="btn-full btn-open-roster" @onclick="() => _showRosterModal = true">OPEN UNIT ROSTER</button>
+                    <button class="btn-full btn-archive" @onclick="() => _showResultsModal = true">BATTLE LOGS</button>
+
+                    @if (_selectedUnitForScale != null)
+                    {
+                        var def = _stateApp?.UnitDefinitions.FirstOrDefault(d => d.Id == _selectedUnitForScale.DefinitionId);
+                        <div class="mt-15 mb-10" style="padding: 10px; background: #222; border: 1px solid #444;">
+                            <label style="color: #ecf0f1; font-family: 'Courier New'; font-size: 0.9rem;">
+                                SCALE: @(def?.Name ?? "UNIT") [@(_selectedUnitForScale.Scale > 0 ? _selectedUnitForScale.Scale.ToString("0.0") : "1.0")]
+                            </label>
+                            <input type="range" min="0.3" max="2.5" step="0.1" value="@(_selectedUnitForScale.Scale > 0 ? _selectedUnitForScale.Scale : 1.0)"
+                                   @oninput='e => { _selectedUnitForScale.Scale = double.TryParse(e.Value?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : 1.0; }'
+                                   style="width: 100%;"/>
+                        </div>
+                    }
 
                     @if (_stateApp.Phase == TurnPhase.Moving)
                     {
-                        <div class="status-box status-active mb-5">
-                            <strong>STATUS:</strong> Awaiting Orders
-                        </div>
-
+                        <div class="status-box status-active mb-5"><strong>STATUS:</strong> Awaiting Orders</div>
                         @if (!_stateApp.PendingManeuvers.ContainsKey(_gameDataApp.MyFactionName))
                         {
-                            <button class="btn-full btn-confirm" @onclick="SubmitManeuvers">
-                                CONFIRM MOVES
-                            </button>
+                            <button class="btn-full btn-confirm" @onclick="SubmitManeuvers">CONFIRM MOVES</button>
                         }
                         else
                         {
@@ -138,21 +139,43 @@
                     }
                     else if (_stateApp.Phase == TurnPhase.Combat)
                     {
-                        <div class="status-box status-battle"><strong>STATUS:</strong> Combat Phase</div>
-                        @if (_battleAvailable)
+                        <div class="status-box status-battle mb-10"><strong>STATUS:</strong> Combat Phase</div>
+
+                        <button class="btn-full btn-stance-maneuver mb-10" @onclick="RefreshGameState">↻ SYNC BATTLES</button>
+
+                        @if (_battleAvailable && _contestedZones.Any() && !_showBattlePanel && !_showStanceModal)
                         {
                             <div class="sidebar-section">
-                                <div class="status-box status-battle">
-                                    <strong>⚔ CONTACT:</strong> @_battleZoneName
-                                </div>
-                                <button class="btn-full btn-battle" @onclick="openBattlePanel">
-                                    INITIATE BATTLE
-                                </button>
+                                <h4 class="section-header">⚔ CONTACTS REPORTED</h4>
+                                @foreach (var cz in _contestedZones)
+                                {
+                                    <div class="status-box status-battle mb-5" style="display:flex; justify-content: space-between; align-items: center; padding: 10px;">
+                                        <span><strong>@cz.ZoneName</strong></span>
+                                        <button class="btn-battle" style="padding: 5px 15px; font-size: 0.8rem; width: auto; margin: 0;"
+                                                @onclick="() => OpenStanceSelection(cz)">INITIATE
+                                        </button>
+                                    </div>
+                                }
                             </div>
                         }
-                        <button class="btn-full btn-confirm" @onclick="EndTurn">
-                            END TURN
-                        </button>
+
+                        @if (_claimableZones.Any() && !_showBattlePanel && !_showStanceModal)
+                        {
+                            <div class="sidebar-section">
+                                <h4 class="section-header" style="color: #4caf50;">🚩 CLAIMABLE SECTORS</h4>
+                                @foreach (var cz in _claimableZones)
+                                {
+                                    <div class="status-box mb-5" style="display:flex; justify-content: space-between; align-items: center; padding: 10px; background: #1b3320; border: 1px solid #4caf50;">
+                                        <span><strong>@cz.ZoneName</strong></span>
+                                        <button class="btn-confirm" style="padding: 5px 15px; font-size: 0.8rem; width: auto; margin: 0;"
+                                                @onclick="() => ClaimZone(cz)">CLAIM
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <button class="btn-full btn-confirm mt-15" @onclick="EndTurn">END TURN</button>
                     }
                 </div>
 
@@ -167,6 +190,10 @@
                                 <div class="battle-faction-label faction-stamp"
                                      style="border-color: @GetFactionColor(faction); color: @GetFactionColor(faction);">
                                     @faction.ToUpper()
+                                    <br/>
+                                    <span style="font-size: 0.7rem; color: #fff;">
+                                        STANCE: @(_factionStances.ContainsKey(faction) ? _factionStances[faction].ToString().ToUpper() : "UNKNOWN")
+                                    </span>
                                 </div>
 
                                 <div class="battle-points-row counter-grid">
@@ -174,29 +201,20 @@
                                         <label class="battle-points-label typewriter-label">MAJOR VP</label>
                                         <div class="mechanical-slot">
                                             <div class="slot-shading"></div>
-
                                             <input type="number" class="hidden-interactive-input" min="0"
                                                    value="@_majorPoints[faction]"
                                                    @oninput="e => _majorPoints[faction] = int.TryParse(e.Value?.ToString(), out var v) ? v : 0"/>
-
-                                            <div class="rolling-number" @key="_majorPoints[faction]">
-                                                @_majorPoints[faction]
-                                            </div>
+                                            <div class="rolling-number" @key="_majorPoints[faction]">@_majorPoints[faction]</div>
                                         </div>
                                     </div>
-
                                     <div class="counter-field">
                                         <label class="battle-points-label typewriter-label">MINOR VP</label>
                                         <div class="mechanical-slot">
                                             <div class="slot-shading"></div>
-
                                             <input type="number" class="hidden-interactive-input" min="0"
                                                    value="@_minorPoints[faction]"
                                                    @oninput="e => _minorPoints[faction] = int.TryParse(e.Value?.ToString(), out var v) ? v : 0"/>
-
-                                            <div class="rolling-number" @key="_minorPoints[faction]">
-                                                @_minorPoints[faction]
-                                            </div>
+                                            <div class="rolling-number" @key="_minorPoints[faction]">@_minorPoints[faction]</div>
                                         </div>
                                     </div>
                                 </div>
@@ -204,32 +222,36 @@
                         }
 
                         <div class="battle-intel-section">
-                            <label class="battle-points-label typewriter-label"
-                                   style="margin-bottom: 10px; display: block;">TACTICAL INTEL (EXCEL)</label>
+                            <label class="battle-points-label typewriter-label mb-10" style="display: block;">ENGAGED FORCES (IN THIS SECTOR)</label>
 
                             @if (_editingUnitApp == null)
                             {
-                                <div class="intel-roster" style="display: flex; flex-direction: column; gap: 5px;">
-                                    @foreach (var u in _battleUnits)
+                                <div class="intel-roster" style="display: flex; flex-direction: column; gap: 10px;">
+                                    @foreach (var faction in _battleUnits.Select(u => u.FactionName).Distinct())
                                     {
-                                        var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == u.DefinitionId);
-                                        <button class="btn-full"
-                                                style="background-color: #2e7d32; color: white; text-align: left; padding: 10px;"
-                                                @onclick="() => OpenExcelEditor(u)">
-                                            📄 EDIT: [@u.FactionName] @(def?.Name ?? "Unknown Unit")
-                                        </button>
+                                        <div class="faction-group">
+                                            <div style="color: @GetFactionColor(faction); font-weight: bold; font-family: 'Courier New'; border-bottom: 1px solid #444; margin-bottom: 5px;">
+                                                == @faction.ToUpper() ==
+                                            </div>
+                                            @foreach (var u in _battleUnits.Where(x => x.FactionName == faction))
+                                            {
+                                                var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == u.DefinitionId);
+                                                <button class="btn-full"
+                                                        style="background-color: #222; color: #ccc; text-align: left; padding: 6px; margin-bottom: 3px; font-size: 0.9rem; border: 1px solid #555;"
+                                                        @onclick="() => OpenExcelEditor(u)">
+                                                    📄 EDIT: @(def?.Name ?? "Unknown Unit")
+                                                </button>
+                                            }
+                                        </div>
                                     }
                                 </div>
                             }
                             else if (_activeExcelGrid != null)
                             {
-                                <div class="excel-editor-panel"
-                                     style="background: #1e1e1e; padding: 10px; border: 1px solid #444; margin-top: 10px;">
-                                    <div
-                                        style="color: #4caf50; font-family: 'Courier New'; margin-bottom: 10px; font-weight: bold;">
+                                <div class="excel-editor-panel" style="background: #1e1e1e; padding: 10px; border: 1px solid #444; margin-top: 10px;">
+                                    <div style="color: #4caf50; font-family: 'Courier New'; margin-bottom: 10px; font-weight: bold;">
                                         EDITING: @_stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == _editingUnitApp.DefinitionId)?.Name
                                     </div>
-
                                     <div style="overflow-x: auto; margin-bottom: 10px;">
                                         <table style="width: 100%; border-collapse: collapse;">
                                             <tbody>
@@ -241,9 +263,7 @@
                                                     {
                                                         var colIndex = j;
                                                         <td style="border: 1px solid #555; padding: 0;">
-                                                            <input type="text"
-                                                                   @bind="_activeExcelGrid[rowIndex][colIndex]"
-                                                                   style="width: 100%; box-sizing: border-box; background: #333; color: #fff; border: none; font-family: 'Courier New'; padding: 6px;"/>
+                                                            <input type="text" @bind="_activeExcelGrid[rowIndex][colIndex]" style="width: 100%; box-sizing: border-box; background: #333; color: #fff; border: none; font-family: 'Courier New'; padding: 6px;"/>
                                                         </td>
                                                     }
                                                 </tr>
@@ -251,42 +271,27 @@
                                             </tbody>
                                         </table>
                                     </div>
-
                                     <div style="display: flex; gap: 5px; margin-bottom: 15px;">
-                                        <button class="btn-full"
-                                                style="padding: 5px; font-size: 0.8rem; background-color: #444;"
-                                                @onclick="AddExcelRow">+ ADD ROW
-                                        </button>
-                                        <button class="btn-full"
-                                                style="padding: 5px; font-size: 0.8rem; background-color: #444;"
-                                                @onclick="AddExcelColumn">+ ADD COLUMN
-                                        </button>
+                                        <button class="btn-full" style="padding: 5px; font-size: 0.8rem; background-color: #444;" @onclick="AddExcelRow">+ ADD ROW</button>
+                                        <button class="btn-full" style="padding: 5px; font-size: 0.8rem; background-color: #444;" @onclick="AddExcelColumn">+ ADD COLUMN</button>
                                     </div>
-
                                     <div style="display: flex; gap: 10px;">
-                                        <button class="btn-full btn-confirm" @onclick="SaveExcelData">✔ SAVE INTEL
-                                        </button>
+                                        <button class="btn-full btn-confirm" @onclick="SaveExcelData">✔ SAVE INTEL</button>
                                         <button class="btn-full btn-abort" @onclick="CloseExcelEditor">CANCEL</button>
                                     </div>
                                 </div>
                             }
                         </div>
 
-                        <div class="battle-actions">
-                            <button class="btn-full btn-abort" @onclick="() => _showBattlePanel = false">
-                                CANCEL
-                            </button>
-                            <button class="btn-full btn-confirm" @onclick="ConfirmBattleResults">
-                                ✔ CONFIRM BATTLE
-                            </button>
+                        <div class="battle-actions mt-15">
+                            <button class="btn-full btn-abort" @onclick="CancelBattle">CANCEL</button>
+                            <button class="btn-full btn-confirm" @onclick="ConfirmBattleResults">✔ CONFIRM BATTLE</button>
                         </div>
                     </div>
                 }
 
-
                 <div class="intel-table-container">
                     <h4 class="intel-header">TERRITORY CONTROL</h4>
-
                     <table class="intel-table">
                         <thead>
                         <tr>
@@ -300,14 +305,9 @@
                             @foreach (var zone in _stateApp.Zones.OrderBy(z => z.Name))
                             {
                                 <tr class="intel-row">
-                                    <td style="font-weight: bold; color: #333;">
-                                        @(string.IsNullOrWhiteSpace(zone.Name) ? "Unknown Sector" : zone.Name)
-                                    </td>
+                                    <td style="font-weight: bold; color: #333;">@(string.IsNullOrWhiteSpace(zone.Name) ? "Unknown Sector" : zone.Name)</td>
                                     <td style="text-align: right;">
-                                        <span class="faction-badge"
-                                              style="background-color: @GetFactionColor(zone.FactionName);">
-                                            @zone.FactionName.ToUpper()
-                                        </span>
+                                        <span class="faction-badge" style="background-color: @GetFactionColor(zone.FactionName);">@zone.FactionName.ToUpper()</span>
                                     </td>
                                 </tr>
                             }
@@ -317,32 +317,59 @@
                 </div>
 
                 <div class="sidebar-section">
-                    <button class="btn-full btn-abort" @onclick='() => NavigationManager.NavigateTo("/home")'>
-                        LEAVE WAR ROOM
-                    </button>
+                    <button class="btn-full btn-abort" @onclick='() => NavigationManager.NavigateTo("/home")'>LEAVE WAR ROOM</button>
                 </div>
-
             </div>
         </div>
     }
 </PaperSheet>
 
+@* --- MODAL POSTAW BITWY --- *@
+@if (_showStanceModal)
+{
+    <div class="roster-modal-overlay">
+        <div class="stance-modal-paper" style="width: 500px;">
+            <h3 class="stance-modal-title">TACTICAL STANCES</h3>
+            <div class="stance-zone-name">SECTOR: @_battleZoneName</div>
+
+            @foreach (var faction in _battleUnits.Select(u => u.FactionName).Distinct())
+            {
+                var currentStance = _factionStances.ContainsKey(faction) ? _factionStances[faction] : BattleStance.Defend;
+                <div style="margin-bottom: 15px; text-align: left; padding: 10px; border: 1px solid #444; background: #222;">
+                    <strong style="color: @GetFactionColor(faction); font-size: 1.2rem;">@faction.ToUpper()</strong>
+                    <div style="display: flex; gap: 5px; margin-top: 5px;">
+                        <button class="btn-stance @(currentStance == BattleStance.Assault ? "btn-stance-assault" : "")"
+                                style="flex:1; opacity: @(currentStance == BattleStance.Assault ? "1" : "0.4");"
+                                @onclick="() => SetStance(faction, BattleStance.Assault)">ASSAULT
+                        </button>
+                        <button class="btn-stance @(currentStance == BattleStance.Maneuver ? "btn-stance-maneuver" : "")"
+                                style="flex:1; opacity: @(currentStance == BattleStance.Maneuver ? "1" : "0.4");"
+                                @onclick="() => SetStance(faction, BattleStance.Maneuver)">MANEUVER
+                        </button>
+                        <button class="btn-stance @(currentStance == BattleStance.Defend ? "btn-stance-defend" : "")"
+                                style="flex:1; opacity: @(currentStance == BattleStance.Defend ? "1" : "0.4");"
+                                @onclick="() => SetStance(faction, BattleStance.Defend)">DEFEND
+                        </button>
+                    </div>
+                </div>
+            }
+
+            <button class="btn-full btn-confirm mt-20" @onclick="ConfirmStances">PROCEED TO BATTLE</button>
+            <button class="btn-full btn-abort mt-10" @onclick="() => _showStanceModal = false">CANCEL</button>
+        </div>
+    </div>
+}
+
 @if (_showRosterModal)
 {
     <div class="roster-modal-overlay">
         <div class="roster-modal-content">
-
             <div class="roster-modal-header">
                 <h2 class="roster-modal-title">
-                    <span style="color: @GetFactionColor(_gameDataApp?.MyFactionName);">
-                        @_gameDataApp.MyFactionName.ToUpper()
-                    </span> TACTICAL ROSTER
+                    <span style="color: @GetFactionColor(_gameDataApp?.MyFactionName);">@_gameDataApp.MyFactionName.ToUpper()</span> TACTICAL ROSTER
                 </h2>
-                <button class="btn-close-modal" @onclick="CloseRosterModal">
-                    CLOSE [X]
-                </button>
+                <button class="btn-close-modal" @onclick="CloseRosterModal">CLOSE [X]</button>
             </div>
-
             @if (_editingUnitApp == null)
             {
                 <table class="roster-table">
@@ -366,16 +393,10 @@
                                 }
                                 <strong>@(def?.Name ?? "Unknown Unit")</strong>
                             </td>
-                            <td class="text-muted">
-                                @(string.IsNullOrEmpty(u.ExcelDatabase64) ? "[ No File ]" : string.IsNullOrEmpty(u.ExcelFileName) ? "[ Custom Edited Grid ]" : u.ExcelFileName)
-                            </td>
-                            <td class="text-dim">
-                                X: @((int)u.X), Y: @((int)u.Y)
-                            </td>
+                            <td class="text-muted">@(string.IsNullOrEmpty(u.ExcelDatabase64) ? "[ No File ]" : string.IsNullOrEmpty(u.ExcelFileName) ? "[ Custom Edited Grid ]" : u.ExcelFileName)</td>
+                            <td class="text-dim">X: @((int)u.X), Y: @((int)u.Y)</td>
                             <td class="text-right">
-                                <button class="btn-edit-excel" @onclick="() => OpenExcelEditor(u)">
-                                    EDIT EXCEL
-                                </button>
+                                <button class="btn-edit-excel" @onclick="() => OpenExcelEditor(u)">EDIT EXCEL</button>
                             </td>
                         </tr>
                     }
@@ -385,10 +406,7 @@
             else if (_activeExcelGrid != null)
             {
                 <div class="excel-editor-container">
-                    <h3 class="excel-editor-title">
-                        EDITING: @_stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == _editingUnitApp.DefinitionId)?.Name
-                    </h3>
-
+                    <h3 class="excel-editor-title">EDITING: @_stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == _editingUnitApp.DefinitionId)?.Name</h3>
                     <div class="excel-table-wrapper">
                         <table class="excel-grid-table">
                             <tbody>
@@ -399,27 +417,78 @@
                                     @for (var j = 0; j < _activeExcelGrid[rowIndex].Count; j++)
                                     {
                                         var colIndex = j;
-                                        <td>
-                                            <input type="text" class="excel-cell-input"
-                                                   @bind="_activeExcelGrid[rowIndex][colIndex]"/>
-                                        </td>
+                                        <td><input type="text" class="excel-cell-input" @bind="_activeExcelGrid[rowIndex][colIndex]"/></td>
                                     }
                                 </tr>
                             }
                             </tbody>
                         </table>
                     </div>
-
                     <div class="excel-editor-controls">
                         <button class="btn-excel-tool" @onclick="AddExcelRow">ADD ROW</button>
                         <button class="btn-excel-tool" @onclick="AddExcelColumn">ADD COLUMN</button>
                     </div>
-
                     <div class="excel-editor-actions">
                         <button class="btn-save-roster" @onclick="SaveExcelData">SAVE TO ROSTER</button>
                         <button class="btn-cancel-roster" @onclick="CloseExcelEditor">CANCEL</button>
                     </div>
                 </div>
+            }
+        </div>
+    </div>
+}
+
+@if (_showResultsModal)
+{
+    <div class="roster-modal-overlay">
+        <div class="roster-modal-content">
+            <div class="roster-modal-header">
+                <h2 class="roster-modal-title">BATTLE ARCHIVE</h2>
+                <button class="btn-close-modal" @onclick="() => _showResultsModal = false">CLOSE [X]</button>
+            </div>
+            @if (_stateApp?.BattleResults == null || !_stateApp.BattleResults.Any())
+            {
+                <p class="text-muted text-center mt-20">NO BATTLE RECORDS FOUND.</p>
+            }
+            else
+            {
+                <table class="archive-table">
+                    <thead>
+                    <tr>
+                        <th>TURN</th>
+                        <th>ZONE</th>
+                        <th>STANCES</th>
+                        <th>OUTCOME (MAJOR / MINOR VP)</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var result in _stateApp.BattleResults.OrderByDescending(r => r.TurnNumber))
+                    {
+                        <tr class="archive-table-row">
+                            <td>@result.TurnNumber</td>
+                            <td>@result.ZoneName</td>
+                            <td>
+                                @if (result.Stances != null)
+                                {
+                                    @foreach (var st in result.Stances)
+                                    {
+                                        <div style="font-size: 0.8rem; color: @GetFactionColor(st.Key);"><span class="stance-badge">@st.Value</span></div>
+                                    }
+                                }
+                            </td>
+                            <td>
+                                @foreach (var kvp in result.MajorPoints)
+                                {
+                                    <div style="color: @GetFactionColor(kvp.Key);"><strong>@kvp.Key.ToUpper():</strong>
+                                        Major: @kvp.Value,
+                                        Minor: @(result.MinorPoints.ContainsKey(kvp.Key) ? result.MinorPoints[kvp.Key] : 0)
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
             }
         </div>
     </div>
@@ -432,15 +501,23 @@
     private GameStateAppDto? _stateApp;
     private UnitAppDto _draggingUnitApp;
     private bool _isProcessingMap;
+
     private bool _battleAvailable;
     private bool _showBattlePanel;
+    private bool _showStanceModal;
+    private bool _showResultsModal;
+
+    private UnitAppDto? _selectedUnitForScale;
+    private Dictionary<string, BattleStance> _factionStances = new();
+
+    private List<ContestedZone> _contestedZones = new();
+    private List<ClaimableZone> _claimableZones = new();
     private string _battleZoneName;
-    private ZoneSeedAppDto _battleZone;
+    private ZoneSeedAppDto? _battleZone;
     private List<UnitAppDto> _battleUnits = [];
     private double _mapRealWidth = 1;
     private double _mapRealHeight = 1;
     private double _dragScaleFactor = 1.0;
-
     private readonly Dictionary<string, int> _majorPoints = new();
     private readonly Dictionary<string, int> _minorPoints = new();
 
@@ -458,11 +535,9 @@
         try
         {
             _gameDataApp = await Http.GetFromJsonAsync<LoadGameDataAppDto>($"api/Campaign/{Id}");
-
             if (!string.IsNullOrEmpty(_gameDataApp?.GameStateJson))
             {
                 _stateApp = JsonSerializer.Deserialize<GameStateAppDto>(_gameDataApp.GameStateJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-
                 if (string.IsNullOrEmpty(_stateApp?.CurrentTurnFaction))
                 {
                     _stateApp.CurrentTurnFaction = _stateApp.Factions.FirstOrDefault()?.Name ?? "Axis";
@@ -481,42 +556,34 @@
         }
     }
 
-    private  string GetFactionColor(string factionName)
-    {
-        return  _stateApp?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
-    }
+    private string GetFactionColor(string factionName) => _stateApp?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!_isLoading && !_loadError && !_mapRendered && _gameDataApp != null)
         {
             _mapRendered = true;
-
             try
             {
                 var dims = await JS.InvokeAsync<MapDimensions>("mapTools.initMap", "gameCanvas", _gameDataApp.MapImageBase64);
-
                 if (dims.Width > 0)
                 {
                     _mapRealWidth = dims.Width;
                     _mapRealHeight = dims.Height;
-                    
                     await Task.Delay(50);
 
                     if (_stateApp?.Zones != null)
                     {
                         foreach (var zone in _stateApp.Zones)
                         {
-                            var factionColor =  GetFactionColor(zone.FactionName);
-                            if (!string.IsNullOrEmpty(factionColor))
-                            {
-                                await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, factionColor);
-                            }
+                            var factionColor = GetFactionColor(zone.FactionName);
+                            if (!string.IsNullOrEmpty(factionColor)) await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, factionColor);
                         }
                     }
+
                     StateHasChanged();
                 }
-                
+
                 await RecalculateBattleAvailability();
             }
             catch (Exception ex)
@@ -526,24 +593,17 @@
         }
     }
 
-
     private async Task StartDrag(UnitAppDto unitApp)
     {
-        if (_stateApp.Phase != TurnPhase.Moving)
-        {
-            return;
-        }
+        _selectedUnitForScale = unitApp;
+
+        if (_stateApp.Phase != TurnPhase.Moving && _stateApp.Phase != TurnPhase.Combat) return;
 
         if (unitApp.FactionName == _gameDataApp.MyFactionName)
         {
             _draggingUnitApp = unitApp;
-
             var visualDims = await JS.InvokeAsync<MapDimensions>("mapTools.getClientDimensions", "gameCanvas");
-
-            if (visualDims.Width > 0)
-            {
-                _dragScaleFactor = _mapRealWidth / visualDims.Width;
-            }
+            if (visualDims.Width > 0) _dragScaleFactor = _mapRealWidth / visualDims.Width;
         }
     }
 
@@ -567,116 +627,175 @@
 
     private async Task SubmitManeuvers()
     {
-        var myManeuvers = _stateApp.Units
-            .Where(u => u.FactionName == _gameDataApp.MyFactionName)
-            .Select(u => new UnitManeuver { UnitId = u.Id, TargetX = u.X, TargetY = u.Y })
-            .ToList();
-
+        var myManeuvers = _stateApp?.Units.Where(u => u.FactionName == _gameDataApp?.MyFactionName).Select(u => new UnitManeuver { UnitId = u.Id, TargetX = u.X, TargetY = u.Y }).ToList();
         var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/maneuver", myManeuvers);
-        if (response.IsSuccessStatusCode)
-        {
-            NavigationManager.NavigateTo(NavigationManager.Uri, true);
-        }
+        if (response.IsSuccessStatusCode) NavigationManager.NavigateTo(NavigationManager.Uri, true);
     }
 
     private async Task EndTurn()
     {
-        var response = await Http.PostAsync($"api/Campaign/{Id}/endturn", null);
+        if (_stateApp == null) return;
+        
+        var dto = new EndTurnRequestAppDto { Units = _stateApp.Units, Zones = _stateApp.Zones };
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/turn", dto);
+
         if (response.IsSuccessStatusCode)
         {
             NavigationManager.NavigateTo(NavigationManager.Uri, true);
+        }
+        else
+        {
+            var errBody = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"Error ending turn: {response.StatusCode} - {errBody}");
+            await JS.InvokeVoidAsync("alert", $"BŁĄD ZAKOŃCZENIA TURY ({response.StatusCode})! Treść błędu: {errBody}");
         }
     }
 
     private async Task RecalculateBattleAvailability()
     {
         _battleAvailable = false;
+        _contestedZones.Clear();
+        _claimableZones.Clear();
         _battleZone = null;
         _battleZoneName = string.Empty;
         _battleUnits.Clear();
 
-        if (_stateApp == null)
-        {
-            return;
-        }
+        if (_stateApp?.Zones == null || _stateApp?.Units == null || _stateApp.Units.Count == 0) return;
 
-        foreach (var zone in _stateApp.Zones)
-        {
-            var unitsInZone = _stateApp.Units.Where(u =>
-                {
-                    var dx = u.X - zone.X;
-                    var dy = u.Y - zone.Y;
-                    return dx * dx + dy * dy < 80 * 80;
-                })
-                .ToList();
+        var mappings = await JS.InvokeAsync<List<UnitZoneMapping>>("mapTools.assignUnitsToZones", _stateApp.Units, _stateApp.Zones);
+        var unitsByZone = mappings.GroupBy(m => m.ZoneId).ToList();
 
-            var factions = unitsInZone.Select(u => u.FactionName)
-                .Where(f => !string.IsNullOrWhiteSpace(f))
-                .Distinct()
-                .ToList();
+        foreach (var group in unitsByZone)
+        {
+            var zoneId = group.Key;
+            if (zoneId < 0 || zoneId >= _stateApp.Zones.Count) continue;
+            
+            var zoneInfo = _stateApp.Zones[zoneId];
+            var zName = zoneInfo.Name ?? "";
+            var tempZoneName = (string.IsNullOrWhiteSpace(zName) || zName.ToUpper().Contains("UNKNOWN")) ? $"Sector #{zoneId}" : zName;
+
+            var unitIdsInZone = group.Select(m => m.UnitId).ToList();
+            var unitsInZone = _stateApp.Units.Where(u => unitIdsInZone.Contains(u.Id)).ToList();
+            var factions = unitsInZone.Select(u => u.FactionName).Where(f => !string.IsNullOrWhiteSpace(f)).Distinct().ToList();
 
             if (factions.Count >= 2)
             {
-                _battleAvailable = true;
-                _battleZone = zone;
-                _battleZoneName = string.IsNullOrWhiteSpace(zone.Name) ? "Unknown Sector" : zone.Name;
-                _battleUnits = unitsInZone;
-
-                _majorPoints.Clear();
-                _minorPoints.Clear();
-
-                foreach (var faction in factions)
+                if (_stateApp.BattleResults == null || !_stateApp.BattleResults.Any(br => br.ZoneName == tempZoneName && br.TurnNumber == _stateApp.TurnNumber))
                 {
-                    _majorPoints[faction] = 0;
-                    _minorPoints[faction] = 0;
+                    _contestedZones.Add(new ContestedZone
+                    {
+                        ZoneId = zoneId,
+                        ZoneName = tempZoneName,
+                        Zone = zoneInfo,
+                        Units = unitsInZone,
+                        Factions = factions
+                    });
                 }
-
-                StateHasChanged();
-                return;
+            }
+            else if (factions.Count == 1 && factions.First() == _gameDataApp.MyFactionName)
+            {
+                if (zoneInfo.FactionName != _gameDataApp.MyFactionName)
+                {
+                    _claimableZones.Add(new ClaimableZone
+                    {
+                        ZoneId = zoneId,
+                        ZoneName = tempZoneName,
+                        Zone = zoneInfo
+                    });
+                }
             }
         }
+
+        if (_contestedZones.Any()) _battleAvailable = true;
         StateHasChanged();
     }
 
-    private async Task openBattlePanel()
+    private void OpenStanceSelection(ContestedZone cz)
     {
-        if (_battleAvailable)
+        _battleZone = cz.Zone;
+        _battleZoneName = cz.ZoneName;
+        _battleUnits = cz.Units;
+
+        _majorPoints.Clear();
+        _minorPoints.Clear();
+        _factionStances.Clear();
+
+        foreach (var faction in cz.Factions)
         {
-            _showBattlePanel = true;
+            _majorPoints[faction] = 0;
+            _minorPoints[faction] = 0;
+            _factionStances[faction] = BattleStance.Defend; 
         }
+
+        _showStanceModal = true;
+        _showBattlePanel = false;
+    }
+
+    private void SetStance(string faction, BattleStance stance)
+    {
+        _factionStances[faction] = stance;
+    }
+
+    private void ConfirmStances()
+    {
+        _showStanceModal = false;
+        _showBattlePanel = true;
+    }
+
+    private void CancelBattle()
+    {
+        _showBattlePanel = false;
     }
 
     private async Task ConfirmBattleResults()
     {
-        if (_stateApp == null || _battleZone == null)
-        {
-            return;
-        }
+        if (_stateApp == null || _battleZone == null) return;
 
         var updatedFiles = new Dictionary<string, string>();
-
         foreach (var u in _battleUnits)
         {
-            if (!string.IsNullOrWhiteSpace(u.ExcelDatabase64))
-            {
-                updatedFiles[u.Id] = u.ExcelDatabase64;
-            }
+            if (!string.IsNullOrWhiteSpace(u.ExcelDatabase64)) updatedFiles[u.Id] = u.ExcelDatabase64;
         }
-
 
         var dto = new BattleResultAppDto
         {
             ZoneName = _battleZoneName,
             TurnNumber = _stateApp.TurnNumber,
+            Stances = _factionStances,
             MajorPoints = _majorPoints,
             MinorPoints = _minorPoints,
             UpdatedUnitFiles = updatedFiles
         };
 
         var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/battle", dto);
-        if (!response.IsSuccessStatusCode)
-            return;
+        if (!response.IsSuccessStatusCode) return;
+
+        if (_stateApp.BattleResults == null) _stateApp.BattleResults = new();
+        _stateApp.BattleResults.Add(dto);
+
+        var winnerFaction = _majorPoints.OrderByDescending(x => x.Value)
+            .ThenByDescending(x => _minorPoints.ContainsKey(x.Key) ? _minorPoints[x.Key] : 0)
+            .FirstOrDefault().Key;
+
+        if (!string.IsNullOrEmpty(winnerFaction))
+        {
+            var winnerColor = GetFactionColor(winnerFaction);
+            await JS.InvokeVoidAsync("mapTools.floodFillRaw", _battleZone.X, _battleZone.Y, winnerColor);
+            _battleZone.FactionName = winnerFaction;
+            
+        }
+
         _showBattlePanel = false;
+        await RecalculateBattleAvailability();
+        StateHasChanged();
+    }
+
+    private async Task ClaimZone(ClaimableZone cz)
+    {
+        var myColor = GetFactionColor(_gameDataApp.MyFactionName);
+        await JS.InvokeVoidAsync("mapTools.floodFillRaw", cz.Zone.X, cz.Zone.Y, myColor);
+        cz.Zone.FactionName = _gameDataApp.MyFactionName;
+
         await RecalculateBattleAvailability();
         StateHasChanged();
     }
@@ -686,7 +805,6 @@
         public double Width { get; set; }
         public double Height { get; set; }
     }
-
 
     private async Task OpenExcelEditor(UnitAppDto unitApp)
     {
@@ -701,7 +819,6 @@
                 using var stream = new MemoryStream(_originalExcelBytes);
                 using var workbook = new XLWorkbook(stream);
                 var worksheet = workbook.Worksheets.First();
-
                 var rowsTotal = worksheet.LastRowUsed().RowNumber();
                 var colsTotal = worksheet.LastColumnUsed().ColumnNumber();
 
@@ -710,8 +827,7 @@
                     var rowList = new List<string>();
                     for (var c = 1; c <= colsTotal; c++)
                     {
-                        var cellValue = worksheet.Cell(r, c).GetValue<string>();
-                        rowList.Add(cellValue);
+                        rowList.Add(worksheet.Cell(r, c).GetValue<string>());
                     }
 
                     _activeExcelGrid.Add(rowList);
@@ -728,7 +844,6 @@
             GenerateBlankTemplate();
         }
     }
-
 
     private async Task GenerateBlankTemplate()
     {
@@ -763,7 +878,6 @@
         if (_editingUnitApp != null && _activeExcelGrid != null)
         {
             XLWorkbook workbook;
-
             if (_originalExcelBytes != null)
             {
                 var stream = new MemoryStream(_originalExcelBytes);
@@ -776,7 +890,6 @@
             }
 
             var worksheet = workbook.Worksheet(1);
-
             for (var r = 0; r < _activeExcelGrid.Count; r++)
             {
                 for (var c = 0; c < _activeExcelGrid[r].Count; c++)
@@ -788,7 +901,6 @@
             using var outStream = new MemoryStream();
             workbook.SaveAs(outStream);
             _editingUnitApp.ExcelDatabase64 = Convert.ToBase64String(outStream.ToArray());
-
             CloseExcelEditor();
         }
     }
@@ -804,5 +916,40 @@
     {
         _showRosterModal = false;
         CloseExcelEditor();
+    }
+
+    public class UnitZoneMapping
+    {
+        public string UnitId { get; set; }
+        public int ZoneId { get; set; }
+    }
+
+    public class ContestedZone
+    {
+        public int ZoneId { get; set; }
+        public string ZoneName { get; set; }
+        public ZoneSeedAppDto Zone { get; set; }
+        public List<UnitAppDto> Units { get; set; }
+        public List<string> Factions { get; set; }
+    }
+
+    public class ClaimableZone
+    {
+        public int ZoneId { get; set; }
+        public string ZoneName { get; set; }
+        public ZoneSeedAppDto Zone { get; set; }
+    }
+
+    private async Task RefreshGameState()
+    {
+        await OnInitializedAsync();
+        await RecalculateBattleAvailability();
+        StateHasChanged();
+    }
+
+    public class PointDto
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 }

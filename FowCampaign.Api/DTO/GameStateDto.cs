@@ -14,6 +14,7 @@ public class GameStateDto
     public Dictionary<string, List<UnitManeuver>> PendingManeuvers { get; set; } = new();
     public Dictionary<string, List<string>> AdjacencyGraph { get; set; } = new();
     public Dictionary<string, string> PendingStances { get; set; } = new();
+    public List<BattleResultApiDto> BattleResults { get; set; } = new();
 }
 
 public enum TurnPhase
