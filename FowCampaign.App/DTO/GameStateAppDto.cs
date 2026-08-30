@@ -10,14 +10,18 @@ public class GameStateAppDto
     public int TurnNumber { get; set; }
     public TurnPhase Phase { get; set; } = TurnPhase.Moving;
     public Dictionary<string, List<UnitManeuver>> PendingManeuvers { get; set; } = new();
+    public Dictionary<string, List<UnitManeuver>> MovementDrafts { get; set; } = new();
+    public List<string> ConfirmedMovementFactions { get; set; } = new();
     public List<BattleResultAppDto> BattleResults { get; set; } = new();
+    public List<ActiveBattleAppDto> ActiveBattles { get; set; } = new();
     public Dictionary<string, List<string>> AdjacencyGraph { get; set; } = new();
-    public Dictionary<string, string> PendingStances { get; set; } = new();
+    public Dictionary<string, Dictionary<string, BattleStance>> PendingStances { get; set; } = new();
 }
 
 public enum TurnPhase
 {
     Moving,
-    Resolution,
-    Combat
+    Combat,
+    Coloring,
+    PostCombatMoving
 }
