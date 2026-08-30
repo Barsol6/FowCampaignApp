@@ -7,5 +7,7 @@ public class LoadGameDataAppDto
     public string MapImageBase64 { get; set; } = string.Empty;
     public string GameStateJson { get; set; } = string.Empty;
     public string MyFactionName { get; set; } = string.Empty;
+    public string MyUsername { get; set; } = string.Empty;
     public bool IsHost { get; set; }
+    public Dictionary<string, List<string>> PlayersByFaction { get; set; } = new();
 }

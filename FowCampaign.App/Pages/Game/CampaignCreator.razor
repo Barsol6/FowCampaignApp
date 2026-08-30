@@ -97,9 +97,9 @@
                 }
             </div>
         </div>
-        <div style="display: flex; gap: 20px; align-items: flex-start; margin-top: 20px;">
+        <div class="campaign-creator-layout" style="display: flex; gap: 20px; align-items: flex-start; margin-top: 20px;">
 
-            <div style="flex: 2;">
+            <div class="campaign-creator-map-column" style="flex: 2;">
                 <div
                     style="background: #ddd; padding: 5px; margin-bottom: 5px; display: flex; gap: 10px; align-items: center;">
                     <button style="@(_currentTool == "PAINT" ? "background:#333; color:white;" : "")"
@@ -121,22 +121,28 @@
                         </button>
                     }
                 </div>
-                <div class="canvas-wrapper"
-                     style="position: relative; width: fit-content; margin: 0 auto; display: block; "
-                     @onclick="HandleCanvasClick"
-                     @onmousemove="HandleWrapperMouseMove"
-                     @onmouseup="HandleWrapperMouseUp">
-                    <canvas id="mapCanvas" style="display: block; pointer-events:none;"></canvas>
-                    @foreach (var unit in _deployedUnits)
-                    {
-                        var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
-                        var def = _unitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
-                        var isBeingDragged = _draggingUnitApp == unit;
-
-                        if (def != null)
+                <div class="campaign-map-zoom-controls" aria-label="Map zoom controls">
+                    <span class="campaign-map-zoom-label">MAP ZOOM: @_mapZoom%</span>
+                    <button class="campaign-map-zoom-button" @onclick="ZoomOut" disabled="@(_mapZoom <= 50)" aria-label="Zoom out">−</button>
+                    <button class="campaign-map-zoom-button" @onclick="ResetMapZoom" disabled="@(_mapZoom == 100)">100%</button>
+                    <button class="campaign-map-zoom-button" @onclick="ZoomIn" disabled="@(_mapZoom >= 200)" aria-label="Zoom in">+</button>
+                </div>
+                <div class="campaign-map-viewport">
+                    <div class="canvas-wrapper campaign-map-surface campaign-map-zoom-@_mapZoom"
+                         @onclick="HandleCanvasClick"
+                         @onmousemove="HandleWrapperMouseMove"
+                         @onmouseup="HandleWrapperMouseUp">
+                        <canvas id="mapCanvas" class="campaign-map-canvas"></canvas>
+                        @foreach (var unit in _deployedUnits)
                         {
-                            <div class="map-unit @(isBeingDragged ? "is-dragging" : "")"
-                                 style="position: absolute;
+                            var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
+                            var def = _unitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
+                            var isBeingDragged = _draggingUnitApp == unit;
+
+                            if (def != null)
+                            {
+                                <div class="map-unit @(isBeingDragged ? "is-dragging" : "")"
+                                     style="position: absolute;
                  left: @((unit.X / _mapRealWidth * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;
                  top: @((unit.Y / _mapRealHeight * 100).ToString(System.Globalization.CultureInfo.InvariantCulture))%;
              transform: translate(-50%, -50%);
@@ -148,10 +154,11 @@
                                  @oncontextmenu="() => DeleteUnit(unit)"
                                  @oncontextmenu:preventDefault="true">
 
-                                <img src="@def.ImageBase64" style="width: 100%; height: 100%; object-fit: contain;"/>
-                            </div>
+                                    <img src="@def.ImageBase64" style="width: 100%; height: 100%; object-fit: contain;"/>
+                                </div>
+                            }
                         }
-                    }
+                </div>
                 </div>
                 <div style="text-align: center; margin-top: 5px;">
                     <button @onclick="ResetMap"
@@ -213,28 +220,56 @@
                                     </div>
                                 </label>
 
-                                <label>
-                                    <input type="checkbox" class="hidden-checkbox"
-                                           checked="@(_startingFactionApp == faction)"
-                                           @onchange="() => _startingFactionApp = faction"/>
-                                    <div class="stamp-option stamp-starter">
-                                        <div class="stamp-badge"></div>
-                                        <span>1ST TURN</span>
-                                    </div>
-                                </label>
-
                             </div>
                         </div>
                     }
                 </div>
+
+                <div class="intel-table-container campaign-territory-control">
+                    <h4 class="intel-header">TERRITORY CONTROL</h4>
+                    <table class="intel-table">
+                        <thead>
+                        <tr>
+                            <td>REGION</td>
+                            <td class="campaign-owner-header">OWNER</td>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var zone in _recordedZones.OrderBy(z => z.Name))
+                        {
+                            <tr class="intel-row">
+                                <td>
+                                    <input @bind="zone.Name"
+                                           aria-label="Sector name"
+                                           class="campaign-sector-name-input"/>
+                                </td>
+                                <td class="campaign-owner-cell">
+                                    <span class="faction-badge campaign-faction-badge">@zone.FactionName.ToUpper()</span>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     }
-    @if (_isScanning)
+    @if (_isSectorNameModalOpen)
     {
-        <div
-            style="position:fixed; top:20px; right:20px; background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; z-index:9999;">
-            Running Intel Scan ...
+        <div class="sector-name-modal-overlay" @onclick="CancelSectorNaming">
+            <section class="sector-name-modal" @onclick:stopPropagation="true" aria-modal="true" role="dialog" aria-labelledby="sector-name-title">
+                <h3 id="sector-name-title" class="sector-name-modal-title">NAME THE SECTOR</h3>
+                <p class="sector-name-modal-description">A sector must have a name before it can be assigned to a faction.</p>
+                <input @bind="_pendingSectorName"
+                       @bind:event="oninput"
+                       class="sector-name-modal-input"
+                       placeholder="SECTOR NAME..."
+                       aria-label="Sector name"/>
+                <div class="sector-name-modal-actions">
+                    <button class="sector-name-modal-cancel" @onclick="CancelSectorNaming">CANCEL</button>
+                    <button class="sector-name-modal-confirm" @onclick="ConfirmSectorNaming" disabled="@string.IsNullOrWhiteSpace(_pendingSectorName)">CONFIRM &amp; PAINT</button>
+                </div>
+            </section>
         </div>
     }
 </PaperSheet>
@@ -244,12 +279,10 @@
     private readonly CreateCampaignAppDto _model = new();
     private FactionAppDto _selectedFactionApp;
     private FactionAppDto _myFactionApp;
-    private FactionAppDto _startingFactionApp;
     private readonly List<ZoneSeedAppDto> _recordedZones = new();
     private readonly List<UnitDefinitionAppDto> _unitDefinitions = new();
     private readonly List<UnitAppDto> _deployedUnits = new();
     private UnitAppDto _draggingUnitApp;
-    private List<DetectedLabelAppDto> _ocrLabels = new();
 
 
     private string _unitName = string.Empty;
@@ -257,16 +290,19 @@
     private string _selectedDefinitionId;
     private string _imageDataUrl;
     private bool _hasMap;
-    private bool _isScanning;
     private byte[] _fileBytes;
     private string _fileContentType;
     private string _errorMessage;
-    private string _regionName = string.Empty;
+    private string _pendingSectorName = string.Empty;
     private string _factionName = string.Empty;
     private string _factionColor = "#000000";
     private string _pendingExcelBase64 = string.Empty;
     private string _pendingExcelName = string.Empty;
     private bool _shouldRenderMap;
+    private bool _isSectorNameModalOpen;
+    private double _pendingSectorVisualX;
+    private double _pendingSectorVisualY;
+    private int _mapZoom = 100;
 
     public class MapDimensions
     {
@@ -289,7 +325,6 @@
             if (!_hasMap) list.Add("Tactical Map must be uploaded.");
             if (_model.Factions.Count < 2) list.Add($"At least 2 Factions required (Current: {_model.Factions.Count}).");
             if (_myFactionApp == null) list.Add("Select your Faction to COMMAND (Checkbox).");
-            if (_startingFactionApp == null) list.Add("Select Faction for 1ST TURN (Checkbox).");
             return list;
         }
     }
@@ -330,22 +365,11 @@
 
             _hasMap = true;
             _shouldRenderMap = true;
-
-            _isScanning = true;
-            StateHasChanged();
-
-            _ocrLabels = await JsRuntime.InvokeAsync<List<DetectedLabelAppDto>>("mapTools.scanMapText", _imageDataUrl);
-            Console.WriteLine($"OCR Success: Found {_ocrLabels.Count} regions.");
         }
         catch (Exception ex)
         {
             _errorMessage = $"Upload Error: {ex.Message}";
             Console.WriteLine(ex);
-        }
-        finally
-        {
-            _isScanning = false;
-            StateHasChanged();
         }
 
         _shouldRenderMap = true;
@@ -357,50 +381,11 @@
 
         if (_currentTool == "PAINT")
         {
-            var realCoords = await JsRuntime.InvokeAsync<PaintCoord>(
-                "mapTools.floodFill",
-                e.OffsetX,
-                e.OffsetY,
-                _selectedFactionApp.Color
-            );
-
-            if (realCoords != null)
-            {
-                var closestLabel = _ocrLabels
-                    .Select(l => new
-                    {
-                        Label = l,
-                        Distance = Math.Sqrt(Math.Pow(l.X - realCoords.X, 2) + Math.Pow(l.Y - realCoords.Y, 2))
-                    })
-                    .Where(x => x.Distance < 1500)
-                    .OrderBy(x => x.Distance)
-                    .FirstOrDefault();
-
-                _regionName = !string.IsNullOrWhiteSpace(closestLabel?.Label.Text)
-                    ? closestLabel.Label.Text
-                    : "UNKNOWN SECTOR";
-
-                var nearbyExistingZone = _recordedZones
-                    .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 5);
-
-                if (nearbyExistingZone != null)
-                {
-                    nearbyExistingZone.FactionName = _selectedFactionApp.Name;
-                    nearbyExistingZone.X = realCoords.X;
-                    nearbyExistingZone.Y = realCoords.Y;
-                    nearbyExistingZone.Name = _regionName;
-                }
-                else
-                {
-                    _recordedZones.Add(new ZoneSeedAppDto
-                    {
-                        X = realCoords.X,
-                        Y = realCoords.Y,
-                        FactionName = _selectedFactionApp.Name,
-                        Name = _regionName
-                    });
-                }
-            }
+            _pendingSectorVisualX = e.OffsetX;
+            _pendingSectorVisualY = e.OffsetY;
+            _pendingSectorName = string.Empty;
+            _isSectorNameModalOpen = true;
+            return;
         }
         else if (_currentTool == "DEPLOY")
         {
@@ -429,17 +414,82 @@
         }
     }
 
+    private async Task ConfirmSectorNaming()
+    {
+        if (_selectedFactionApp == null || string.IsNullOrWhiteSpace(_pendingSectorName)) return;
+
+        var realCoords = await JsRuntime.InvokeAsync<PaintCoord>(
+            "mapTools.floodFill",
+            _pendingSectorVisualX,
+            _pendingSectorVisualY,
+            _selectedFactionApp.Color
+        );
+
+        if (realCoords != null)
+        {
+            var nearbyExistingZone = _recordedZones
+                .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 5);
+
+            if (nearbyExistingZone != null)
+            {
+                nearbyExistingZone.FactionName = _selectedFactionApp.Name;
+                nearbyExistingZone.X = realCoords.X;
+                nearbyExistingZone.Y = realCoords.Y;
+                nearbyExistingZone.Name = _pendingSectorName.Trim();
+            }
+            else
+            {
+                _recordedZones.Add(new ZoneSeedAppDto
+                {
+                    X = realCoords.X,
+                    Y = realCoords.Y,
+                    FactionName = _selectedFactionApp.Name,
+                    Name = _pendingSectorName.Trim()
+                });
+            }
+        }
+
+        CancelSectorNaming();
+    }
+
+    private void CancelSectorNaming()
+    {
+        _pendingSectorName = string.Empty;
+        _isSectorNameModalOpen = false;
+    }
+
     private async Task ResetMap()
     {
         await JsRuntime.InvokeVoidAsync("mapTools.resetMap");
+    }
+
+    private void ZoomIn()
+    {
+        _mapZoom = Math.Min(200, _mapZoom + 25);
+    }
+
+    private void ZoomOut()
+    {
+        _mapZoom = Math.Max(50, _mapZoom - 25);
+    }
+
+    private void ResetMapZoom()
+    {
+        _mapZoom = 100;
     }
 
     private async Task SaveCampaign()
     {
         if (MissingRequirements.Any()) return;
 
-        _isScanning = true; 
-        StateHasChanged();
+        var unitZoneMappings = await JsRuntime.InvokeAsync<List<UnitZoneMapping>>(
+            "mapTools.assignUnitsToZones", _deployedUnits, _recordedZones);
+        foreach (var mapping in unitZoneMappings)
+        {
+            if (mapping.ZoneId < 0 || mapping.ZoneId >= _recordedZones.Count) continue;
+            var unit = _deployedUnits.FirstOrDefault(candidate => candidate.Id == mapping.UnitId);
+            if (unit != null) unit.CurrentZoneName = _recordedZones[mapping.ZoneId].Name;
+        }
 
         var zoneCoordinates = _recordedZones.Select(z => new { name = z.Name, x = z.X, y = z.Y }).ToList();
         var adjacencyGraph = await JsRuntime.InvokeAsync<Dictionary<string, List<string>>>("mapTools.calculateAdjacency", zoneCoordinates, 15);
@@ -450,7 +500,6 @@
             Zones = _recordedZones,
             Units = _deployedUnits,
             UnitDefinitions = _unitDefinitions,
-            CurrentTurnFaction = _startingFactionApp.Name,
             TurnNumber = 1,
             AdjacencyGraph = adjacencyGraph
         };
@@ -469,8 +518,6 @@
         var request = new HttpRequestMessage(HttpMethod.Post, "api/Campaign/create") { Content = content };
         request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
         var response = await Http.SendAsync(request);
-
-        _isScanning = false;
 
         if (response.IsSuccessStatusCode) {
             await _paper.TossAndNavigate("/home");
@@ -545,6 +592,12 @@
     {
         public double X { get; set; }
         public double Y { get; set; }
+    }
+
+    public class UnitZoneMapping
+    {
+        public string UnitId { get; set; } = string.Empty;
+        public int ZoneId { get; set; }
     }
 
     private async Task AddFaction()

@@ -3,7 +3,9 @@
 @using System.Text.Json
 @using ClosedXML.Excel
 @using FowCampaign.App.DTO
+@using FowCampaign.App.Handlers
 @using FowCampaign.App.Shared
+@using Microsoft.AspNetCore.SignalR.Client
 
 @attribute [Authorize]
 @layout HomeLayout
@@ -11,6 +13,8 @@
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
+@inject IConfiguration Configuration
+@implements IAsyncDisposable
 
 <PaperSheet @ref="_paper">
 
@@ -48,45 +52,49 @@
                     <span>Playing As: <span style="color:yellow;">@_gameDataApp.MyFactionName</span></span>
                 </div>
 
-                <div class="canvas-container"
-                     style="position: relative; width: fit-content; height: fit-content;"
-                     @onmousemove="HandleWrapperMouseMove"
-                     @onmouseup="HandleWrapperMouseUp">
+                <div class="game-map-zoom-controls" aria-label="Map zoom controls">
+                    <span class="game-map-zoom-label">MAP ZOOM: @_gameMapZoom%</span>
+                    <button class="game-map-zoom-button" @onclick="ZoomGameMapOut" disabled="@(_gameMapZoom <= 50)">−</button>
+                    <button class="game-map-zoom-button" @onclick="ResetGameMapZoom">100%</button>
+                    <button class="game-map-zoom-button" @onclick="ZoomGameMapIn" disabled="@(_gameMapZoom >= 200)">+</button>
+                </div>
 
-                    <canvas id="gameCanvas" class="game-canvas"></canvas>
+                <div class="game-map-viewport">
+                    <div class="canvas-container game-map-surface game-map-zoom-@_gameMapZoom"
+                         @onmousemove="HandleWrapperMouseMove"
+                         @onmouseup="HandleWrapperMouseUp">
 
-                    @if (_isProcessingMap)
-                    {
-                        <div class="map-overlay-blocker">
-                            <div class="processing-panel">
-                                <div class="processing-text">UPDATING TACTICAL MAP...</div>
-                                <div class="progress-track">
-                                    <div class="progress-bar-moving"></div>
+                        <canvas id="gameCanvas" class="game-canvas game-map-canvas"></canvas>
+
+                        @if (_isProcessingMap)
+                        {
+                            <div class="map-overlay-blocker">
+                                <div class="processing-panel">
+                                    <div class="processing-text">UPDATING TACTICAL MAP...</div>
+                                    <div class="progress-track">
+                                        <div class="progress-bar-moving"></div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    }
+                        }
 
-                    @if (_stateApp?.Units != null)
-                    {
-                        @foreach (var unit in _stateApp.Units)
+                        @if (_stateApp?.Units != null)
                         {
-                            var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
-                            var isMyUnit = unit.FactionName == _gameDataApp.MyFactionName;
-
-                            var canDrag = isMyUnit && (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.Combat);
-
-                            var dragClass = canDrag ? "unit-draggable" : "unit-locked";
-                            var pointerClass = _draggingUnitApp != null ? "pointer-events-none" : "";
-                            var leftPercent = unit.X / _mapRealWidth * 100.0;
-                            var topPercent = unit.Y / _mapRealHeight * 100.0;
-                            var factionColor = GetFactionColor(unit.FactionName);
-
-                            var currentScale = unit.Scale > 0 ? unit.Scale : 1.0;
-                            var positionStyle = $"left: {leftPercent.ToString("F2", CultureInfo.InvariantCulture)}%; top: {topPercent.ToString("F2", CultureInfo.InvariantCulture)}%; transform: scale({currentScale.ToString(CultureInfo.InvariantCulture)}); border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";
-
-                            if (def != null)
+                            @foreach (var unit in _stateApp.Units)
                             {
+                                var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
+                                var isMyUnit = unit.FactionName == _gameDataApp.MyFactionName;
+
+                                var canDrag = isMyUnit && (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.PostCombatMoving);
+
+                                var dragClass = canDrag ? "unit-draggable" : "unit-locked";
+                                var pointerClass = _draggingUnitApp != null ? "pointer-events-none" : "";
+                                var leftPercent = unit.X / _mapRealWidth * 100.0;
+                                var topPercent = unit.Y / _mapRealHeight * 100.0;
+                                var factionColor = GetFactionColor(unit.FactionName);
+
+                                var currentScale = unit.Scale > 0 ? unit.Scale : 1.0;
+                                var positionStyle = $"left: {leftPercent.ToString("F2", CultureInfo.InvariantCulture)}%; top: {topPercent.ToString("F2", CultureInfo.InvariantCulture)}%; transform: translate(-50%, -50%) scale({currentScale.ToString(CultureInfo.InvariantCulture)}); border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";                            {
                                 <div class="map-unit @dragClass @pointerClass"
                                      style="@positionStyle"
                                      @onmousedown="() => StartDrag(unit)"
@@ -95,8 +103,9 @@
                                          title="@def.Name"/>
                                 </div>
                             }
+                            }
                         }
-                    }
+                    </div>
                 </div>
             </div>
 
@@ -120,69 +129,125 @@
                         </div>
                     }
 
-                    @if (_stateApp.Phase == TurnPhase.Moving)
+                    @if (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.PostCombatMoving)
                     {
-                        <div class="status-box status-active mb-5"><strong>STATUS:</strong> Awaiting Orders</div>
-                        @if (!_stateApp.PendingManeuvers.ContainsKey(_gameDataApp.MyFactionName))
+                        <div class="status-box status-active mb-5"><strong>STATUS:</strong> @(_stateApp.Phase == TurnPhase.Moving ? "Initial movement" : "Post-battle movement")</div>
+                        @if (!IsMyFactionMovementConfirmed)
                         {
-                            <button class="btn-full btn-confirm" @onclick="SubmitManeuvers">CONFIRM MOVES</button>
+                            <div class="status-box status-waiting mb-5"><strong>DRAFT:</strong> Saved for your faction</div>
+                            <button class="btn-full btn-confirm" @onclick="ConfirmManeuvers" disabled="@_isConfirmingMovement">
+                                @(_isConfirmingMovement ? "CONFIRMING..." : "CONFIRM MOVES")
+                            </button>
+                            @if (!string.IsNullOrWhiteSpace(_movementErrorMessage))
+                            {
+                                <div class="status-box status-battle mt-5">@_movementErrorMessage</div>
+                            }
                         }
                         else
                         {
                             <div class="status-box status-waiting"><strong>STATUS:</strong> Waiting for other players...</div>
                         }
-                    }
-                    else if (_stateApp.Phase == TurnPhase.Resolution)
-                    {
-                        <div class="status-box status-active"><strong>STATUS:</strong> Resolving Maneuvers</div>
-                        <button class="btn-full btn-wait" disabled>PROCESSING...</button>
+                        <div class="faction-command-panel">
+                            <div class="faction-command-panel-title">MOVEMENT CONFIRMATION</div>
+                            @foreach (var faction in _stateApp.Factions)
+                            {
+                                var hasFactionPlayer = _gameDataApp.PlayersByFaction.TryGetValue(faction.Name, out var players) && players.Any();
+                                <div class="faction-command-panel-row">
+                                    <span>@faction.Name</span>
+                                    <strong>@(!hasFactionPlayer ? "HOLD — NO PLAYER" : _stateApp.ConfirmedMovementFactions.Contains(faction.Name) ? "CONFIRMED" : "PLANNING")</strong>
+                                </div>
+                            }
+                        </div>
                     }
                     else if (_stateApp.Phase == TurnPhase.Combat)
                     {
                         <div class="status-box status-battle mb-10"><strong>STATUS:</strong> Combat Phase</div>
-
-                        <button class="btn-full btn-stance-maneuver mb-10" @onclick="RefreshGameState">↻ SYNC BATTLES</button>
-
-                        @if (_battleAvailable && _contestedZones.Any() && !_showBattlePanel && !_showStanceModal)
+                        @foreach (var battle in _stateApp.ActiveBattles.Where(b => !b.IsResolved))
                         {
-                            <div class="sidebar-section">
-                                <h4 class="section-header">⚔ CONTACTS REPORTED</h4>
-                                @foreach (var cz in _contestedZones)
+                            <div class="status-box status-battle mb-5">
+                                <strong>@battle.ZoneName</strong><br/>
+                                <span>@string.Join(" vs ", battle.Factions)</span>
+                                @if (battle.Factions.Contains(_gameDataApp.MyFactionName))
                                 {
-                                    <div class="status-box status-battle mb-5" style="display:flex; justify-content: space-between; align-items: center; padding: 10px;">
-                                        <span><strong>@cz.ZoneName</strong></span>
-                                        <button class="btn-battle" style="padding: 5px 15px; font-size: 0.8rem; width: auto; margin: 0;"
-                                                @onclick="() => OpenStanceSelection(cz)">INITIATE
-                                        </button>
-                                    </div>
+                                    <button class="btn-full btn-battle mt-10" @onclick="() => OpenBattle(battle)">OPEN BATTLE</button>
                                 }
                             </div>
                         }
-
-                        @if (_claimableZones.Any() && !_showBattlePanel && !_showStanceModal)
-                        {
-                            <div class="sidebar-section">
-                                <h4 class="section-header" style="color: #4caf50;">🚩 CLAIMABLE SECTORS</h4>
-                                @foreach (var cz in _claimableZones)
-                                {
-                                    <div class="status-box mb-5" style="display:flex; justify-content: space-between; align-items: center; padding: 10px; background: #1b3320; border: 1px solid #4caf50;">
-                                        <span><strong>@cz.ZoneName</strong></span>
-                                        <button class="btn-confirm" style="padding: 5px 15px; font-size: 0.8rem; width: auto; margin: 0;"
-                                                @onclick="() => ClaimZone(cz)">CLAIM
-                                        </button>
-                                    </div>
-                                }
-                            </div>
-                        }
-
-                        <button class="btn-full btn-confirm mt-15" @onclick="EndTurn">END TURN</button>
                     }
+                    else if (_stateApp.Phase == TurnPhase.Coloring)
+                    {
+                        <div class="status-box status-active mb-10"><strong>STATUS:</strong> Resolve territory coloring</div>
+                        @foreach (var battle in _stateApp.ActiveBattles.Where(b => !b.ColoringResolved))
+                        {
+                            <div class="status-box status-battle mb-5">
+                                <strong>@battle.ZoneName</strong>
+                                @if (string.Equals(battle.CommanderUsername, _gameDataApp.MyUsername, StringComparison.Ordinal))
+                                {
+                                    <select class="battle-color-select" @bind="_coloringFactionName">
+                                        @foreach (var faction in _stateApp.Factions)
+                                        {
+                                            <option value="@faction.Name">@faction.Name</option>
+                                        }
+                                    </select>
+                                    <button class="btn-full btn-confirm mt-10" @onclick="() => ColorBattle(battle, false)">COLOR SECTOR</button>
+                                    <button class="btn-full btn-abort mt-5" @onclick="() => ColorBattle(battle, true)">SKIP COLORING</button>
+                                }
+                                else
+                                {
+                                    <span>Awaiting battle commander: @battle.CommanderUsername</span>
+                                }
+                            </div>
+                        }
+                    }
+
+                    <div class="faction-command-panel">
+                        <div class="faction-command-panel-title">FACTION PLAYERS</div>
+                        @foreach (var faction in _stateApp.Factions)
+                        {
+                            <div class="faction-command-panel-row">
+                                <span>@faction.Name</span>
+                                <strong>@string.Join(", ", _gameDataApp.PlayersByFaction.TryGetValue(faction.Name, out var players) ? players : [])</strong>
+                            </div>
+                        }
+                    </div>
                 </div>
 
                 @if (_showBattlePanel && _battleZone != null)
                 {
                     <div class="sidebar-section battle-panel">
                         <h4 class="section-header">⚔ BATTLE — @(_battleZoneName.ToUpper())</h4>
+
+                        @if (_activeBattleApp != null)
+                        {
+                            <div class="battle-configuration">
+                                <label><input type="checkbox" @bind="_activeBattleApp.IsAmphibious"/> AMPHIBIOUS LANDING</label>
+                                @if (_activeBattleApp.IsAmphibious)
+                                {
+                                    <select class="battle-color-select" @bind="_activeBattleApp.AttackerFaction">
+                                        <option value="">ATTACKER...</option>
+                                        @foreach (var faction in _activeBattleApp.Factions)
+                                        {
+                                            <option value="@faction">@faction</option>
+                                        }
+                                    </select>
+                                    <select class="battle-color-select" @bind="_activeBattleApp.DefenderFaction">
+                                        <option value="">DEFENDER...</option>
+                                        @foreach (var faction in _activeBattleApp.Factions)
+                                        {
+                                            <option value="@faction">@faction</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <button class="btn-full btn-stance-maneuver mt-10" @onclick="() => OpenBattleForStance(_activeBattleApp)">SET MY STANCE</button>
+                                }
+                                @if (_activeBattleApp.IsAmphibious)
+                                {
+                                    <button class="btn-full btn-stance-maneuver mt-10" @onclick="ConfigureAmphibiousBattle">SAVE LANDING SIDES</button>
+                                }
+                            </div>
+                        }
 
                         @foreach (var faction in _battleUnits.Select(u => u.FactionName).Distinct())
                         {
@@ -284,6 +349,11 @@
                         </div>
 
                         <div class="battle-actions mt-15">
+                            <input class="scenario-name-input" @bind="_scenarioName" placeholder="SCENARIO NAME (REQUIRED)"/>
+                            @if (!string.IsNullOrWhiteSpace(_actionErrorMessage))
+                            {
+                                <div class="action-validation-message">@_actionErrorMessage</div>
+                            }
                             <button class="btn-full btn-abort" @onclick="CancelBattle">CANCEL</button>
                             <button class="btn-full btn-confirm" @onclick="ConfirmBattleResults">✔ CONFIRM BATTLE</button>
                         </div>
@@ -324,7 +394,23 @@
     }
 </PaperSheet>
 
-@* --- MODAL POSTAW BITWY --- *@
+@if (_showRouteChoiceModal)
+{
+    <div class="roster-modal-overlay">
+        <section class="route-choice-modal" role="dialog" aria-modal="true" aria-labelledby="route-choice-title">
+            <h3 id="route-choice-title" class="stance-modal-title">CHOOSE MOVEMENT ROUTE</h3>
+            <p class="route-choice-description">Choose the owned sector this unit crosses before reaching @_pendingRouteDestinationName.</p>
+            <div class="route-choice-actions">
+                @foreach (var route in _pendingIntermediateRoutes)
+                {
+                    <button class="btn-full btn-stance-maneuver" @onclick="() => ConfirmRouteChoice(route)">@route</button>
+                }
+            </div>
+            <button class="btn-full btn-abort mt-10" @onclick="CancelRouteChoice">CANCEL</button>
+        </section>
+    </div>
+}
+
 @if (_showStanceModal)
 {
     <div class="roster-modal-overlay">
@@ -332,29 +418,30 @@
             <h3 class="stance-modal-title">TACTICAL STANCES</h3>
             <div class="stance-zone-name">SECTOR: @_battleZoneName</div>
 
-            @foreach (var faction in _battleUnits.Select(u => u.FactionName).Distinct())
-            {
-                var currentStance = _factionStances.ContainsKey(faction) ? _factionStances[faction] : BattleStance.Defend;
-                <div style="margin-bottom: 15px; text-align: left; padding: 10px; border: 1px solid #444; background: #222;">
-                    <strong style="color: @GetFactionColor(faction); font-size: 1.2rem;">@faction.ToUpper()</strong>
-                    <div style="display: flex; gap: 5px; margin-top: 5px;">
-                        <button class="btn-stance @(currentStance == BattleStance.Assault ? "btn-stance-assault" : "")"
-                                style="flex:1; opacity: @(currentStance == BattleStance.Assault ? "1" : "0.4");"
-                                @onclick="() => SetStance(faction, BattleStance.Assault)">ASSAULT
-                        </button>
-                        <button class="btn-stance @(currentStance == BattleStance.Maneuver ? "btn-stance-maneuver" : "")"
-                                style="flex:1; opacity: @(currentStance == BattleStance.Maneuver ? "1" : "0.4");"
-                                @onclick="() => SetStance(faction, BattleStance.Maneuver)">MANEUVER
-                        </button>
-                        <button class="btn-stance @(currentStance == BattleStance.Defend ? "btn-stance-defend" : "")"
-                                style="flex:1; opacity: @(currentStance == BattleStance.Defend ? "1" : "0.4");"
-                                @onclick="() => SetStance(faction, BattleStance.Defend)">DEFEND
-                        </button>
-                    </div>
+            @{ var myFaction = _gameDataApp?.MyFactionName ?? "UNKNOWN";
+                var currentStance = _factionStances.ContainsKey(myFaction) ? _factionStances[myFaction] : BattleStance.Defend; }
+            <div style="margin-bottom: 15px; text-align: left; padding: 10px; border: 1px solid #444; background: #222;">
+                <strong style="color: @GetFactionColor(myFaction); font-size: 1.2rem;">@myFaction.ToUpper() - YOUR ORDERS</strong>
+                <div style="display: flex; gap: 5px; margin-top: 5px;">
+                    <button class="btn-stance @(currentStance == BattleStance.Assault ? "btn-stance-assault" : "")"
+                            style="flex:1; opacity: @(currentStance == BattleStance.Assault ? "1" : "0.4");"
+                            @onclick="() => SetStance(myFaction, BattleStance.Assault)">ASSAULT
+                    </button>
+                    <button class="btn-stance @(currentStance == BattleStance.Maneuver ? "btn-stance-maneuver" : "")"
+                            style="flex:1; opacity: @(currentStance == BattleStance.Maneuver ? "1" : "0.4");"
+                            @onclick="() => SetStance(myFaction, BattleStance.Maneuver)">MANEUVER
+                    </button>
+                    <button class="btn-stance @(currentStance == BattleStance.Defend ? "btn-stance-defend" : "")"
+                            style="flex:1; opacity: @(currentStance == BattleStance.Defend ? "1" : "0.4");"
+                            @onclick="() => SetStance(myFaction, BattleStance.Defend)">DEFEND
+                    </button>
                 </div>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_actionErrorMessage))
+            {
+                <div class="action-validation-message">@_actionErrorMessage</div>
             }
-
-            <button class="btn-full btn-confirm mt-20" @onclick="ConfirmStances">PROCEED TO BATTLE</button>
+            <button class="btn-full btn-confirm mt-20" @onclick="SubmitMyStance">DISPATCH ORDERS</button>
             <button class="btn-full btn-abort mt-10" @onclick="() => _showStanceModal = false">CANCEL</button>
         </div>
     </div>
@@ -407,6 +494,10 @@
             {
                 <div class="excel-editor-container">
                     <h3 class="excel-editor-title">EDITING: @_stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == _editingUnitApp.DefinitionId)?.Name</h3>
+                    @if (!string.IsNullOrWhiteSpace(_actionErrorMessage))
+                    {
+                        <div class="action-validation-message">@_actionErrorMessage</div>
+                    }
                     <div class="excel-table-wrapper">
                         <table class="excel-grid-table">
                             <tbody>
@@ -457,6 +548,8 @@
                     <tr>
                         <th>TURN</th>
                         <th>ZONE</th>
+                        <th>SCENARIO</th>
+                        <th>COMMANDER</th>
                         <th>STANCES</th>
                         <th>OUTCOME (MAJOR / MINOR VP)</th>
                     </tr>
@@ -467,6 +560,8 @@
                         <tr class="archive-table-row">
                             <td>@result.TurnNumber</td>
                             <td>@result.ZoneName</td>
+                            <td>@result.ScenarioName</td>
+                            <td>@result.CommanderUsername</td>
                             <td>
                                 @if (result.Stances != null)
                                 {
@@ -510,8 +605,6 @@
     private UnitAppDto? _selectedUnitForScale;
     private Dictionary<string, BattleStance> _factionStances = new();
 
-    private List<ContestedZone> _contestedZones = new();
-    private List<ClaimableZone> _claimableZones = new();
     private string _battleZoneName;
     private ZoneSeedAppDto? _battleZone;
     private List<UnitAppDto> _battleUnits = [];
@@ -530,30 +623,132 @@
     private byte[] _originalExcelBytes;
     private bool _showRosterModal;
 
+    private HubConnection? _hubConnection;
+    private ActiveBattleAppDto? _activeBattleApp;
+    private string _scenarioName = string.Empty;
+    private string _coloringFactionName = string.Empty;
+    private string _actionErrorMessage = string.Empty;
+    private int _gameMapZoom = 100;
+    private readonly Dictionary<string, UnitManeuver> _trialManeuvers = new();
+    private double _dragStartX;
+    private double _dragStartY;
+    private bool _showRouteChoiceModal;
+    private List<string> _pendingIntermediateRoutes = new();
+    private UnitManeuver? _pendingRouteManeuver;
+    private string _pendingRouteDestinationName = string.Empty;
+    private bool _isConfirmingMovement;
+    private string _movementErrorMessage = string.Empty;
+    private bool _unitZoneSynchronizationAttempted;
+    private readonly SemaphoreSlim _stateRefreshLock = new(1, 1);
+
+    private bool IsMyFactionMovementConfirmed => _stateApp?.ConfirmedMovementFactions.Contains(_gameDataApp?.MyFactionName ?? string.Empty) == true;
+
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            _gameDataApp = await Http.GetFromJsonAsync<LoadGameDataAppDto>($"api/Campaign/{Id}");
-            if (!string.IsNullOrEmpty(_gameDataApp?.GameStateJson))
-            {
-                _stateApp = JsonSerializer.Deserialize<GameStateAppDto>(_gameDataApp.GameStateJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-                if (string.IsNullOrEmpty(_stateApp?.CurrentTurnFaction))
-                {
-                    _stateApp.CurrentTurnFaction = _stateApp.Factions.FirstOrDefault()?.Name ?? "Axis";
-                    _stateApp.TurnNumber = 1;
-                }
-            }
+            await LoadGameDataAsync();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading game: {ex.Message}");
+            Console.WriteLine($"Error loading game data: {ex.Message}");
             _loadError = true;
+            _isLoading = false;
+            return;
+        }
+
+        try
+        {
+            await InitializeHubConnectionAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SignalR connection unavailable: {ex.Message}");
         }
         finally
         {
             _isLoading = false;
         }
+    }
+
+    private async Task LoadGameDataAsync()
+    {
+        var gameData = await Http.GetFromJsonAsync<LoadGameDataAppDto>($"api/Campaign/{Id}");
+        if (gameData == null || string.IsNullOrWhiteSpace(gameData.GameStateJson))
+            throw new InvalidOperationException("Campaign data is unavailable.");
+
+        var state = JsonSerializer.Deserialize<GameStateAppDto>(gameData.GameStateJson, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+
+        if (state == null)
+            throw new InvalidOperationException("Campaign state is invalid.");
+
+        if (string.IsNullOrWhiteSpace(state.CurrentTurnFaction))
+            state.CurrentTurnFaction = state.Factions.FirstOrDefault()?.Name ?? string.Empty;
+
+        if (state.TurnNumber < 1)
+            state.TurnNumber = 1;
+
+        _gameDataApp = gameData;
+        _stateApp = state;
+        _trialManeuvers.Clear();
+        var hasVisibleDraft = state.MovementDrafts.TryGetValue(gameData.MyFactionName, out var savedDraft);
+        if (!hasVisibleDraft)
+            state.PendingManeuvers.TryGetValue(gameData.MyFactionName, out savedDraft);
+
+        if (savedDraft != null)
+        {
+            foreach (var maneuver in savedDraft)
+            {
+                if (!IsMyFactionMovementConfirmed)
+                    _trialManeuvers[maneuver.UnitId] = maneuver;
+            }
+
+            foreach (var maneuver in savedDraft)
+            {
+                var unit = state.Units.FirstOrDefault(candidate => candidate.Id == maneuver.UnitId);
+                if (unit == null) continue;
+                unit.X = maneuver.TargetX;
+                unit.Y = maneuver.TargetY;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(_coloringFactionName))
+            _coloringFactionName = state.Factions.FirstOrDefault()?.Name ?? string.Empty;
+    }
+
+    private async Task InitializeHubConnectionAsync()
+    {
+        if (_hubConnection != null) return;
+
+        var apiBaseUrl = Configuration["ApiBaseUrl"] ?? NavigationManager.BaseUri;
+        var hubUrl = $"{apiBaseUrl.TrimEnd('/')}/gamehub";
+
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(hubUrl, options =>
+            {
+                options.HttpMessageHandlerFactory = innerHandler => new CookieHandler
+                {
+                    InnerHandler = innerHandler
+                };
+            })
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hubConnection.On("GameUpdated", () => InvokeAsync(RefreshGameStateAsync));
+        _hubConnection.Reconnected += async _ => await JoinCampaignHubGroupAsync();
+
+        await _hubConnection.StartAsync();
+        await JoinCampaignHubGroupAsync();
+    }
+
+    private async Task JoinCampaignHubGroupAsync()
+    {
+        if (_hubConnection?.State == HubConnectionState.Connected)
+            await _hubConnection.SendAsync("JoinCampaignGroup", Id);
     }
 
     private string GetFactionColor(string factionName) => _stateApp?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
@@ -572,14 +767,9 @@
                     _mapRealHeight = dims.Height;
                     await Task.Delay(50);
 
-                    if (_stateApp?.Zones != null)
-                    {
-                        foreach (var zone in _stateApp.Zones)
-                        {
-                            var factionColor = GetFactionColor(zone.FactionName);
-                            if (!string.IsNullOrEmpty(factionColor)) await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, factionColor);
-                        }
-                    }
+                    await SynchronizeUntrackedUnitZonesAsync();
+
+                    await PaintZoneOwnershipAsync();
 
                     StateHasChanged();
                 }
@@ -597,11 +787,14 @@
     {
         _selectedUnitForScale = unitApp;
 
-        if (_stateApp.Phase != TurnPhase.Moving && _stateApp.Phase != TurnPhase.Combat) return;
+        if (_stateApp.Phase != TurnPhase.Moving && _stateApp.Phase != TurnPhase.PostCombatMoving) return;
+        if (IsMyFactionMovementConfirmed) return;
 
         if (unitApp.FactionName == _gameDataApp.MyFactionName)
         {
             _draggingUnitApp = unitApp;
+            _dragStartX = unitApp.X;
+            _dragStartY = unitApp.Y;
             var visualDims = await JS.InvokeAsync<MapDimensions>("mapTools.getClientDimensions", "gameCanvas");
             if (visualDims.Width > 0) _dragScaleFactor = _mapRealWidth / visualDims.Width;
         }
@@ -616,119 +809,308 @@
         }
     }
 
-    private async Task HandleWrapperMouseUp()
+    private async Task HandleWrapperMouseUp(MouseEventArgs _)
     {
         if (_draggingUnitApp != null)
         {
+            var draggedUnit = _draggingUnitApp;
             _draggingUnitApp = null;
-            await RecalculateBattleAvailability();
+            await PlanMovementAsync(draggedUnit);
         }
     }
 
-    private async Task SubmitManeuvers()
+    private async Task ConfirmManeuvers()
     {
-        var myManeuvers = _stateApp?.Units.Where(u => u.FactionName == _gameDataApp?.MyFactionName).Select(u => new UnitManeuver { UnitId = u.Id, TargetX = u.X, TargetY = u.Y }).ToList();
-        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/maneuver", myManeuvers);
-        if (response.IsSuccessStatusCode) NavigationManager.NavigateTo(NavigationManager.Uri, true);
-    }
+        if (_stateApp == null || _gameDataApp == null || _isConfirmingMovement) return;
 
-    private async Task EndTurn()
-    {
-        if (_stateApp == null) return;
-        
-        var dto = new EndTurnRequestAppDto { Units = _stateApp.Units, Zones = _stateApp.Zones };
-        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/turn", dto);
-
-        if (response.IsSuccessStatusCode)
+        _isConfirmingMovement = true;
+        _movementErrorMessage = string.Empty;
+        try
         {
-            NavigationManager.NavigateTo(NavigationManager.Uri, true);
+            if (!await SaveCompleteDraftAsync()) return;
+
+            var response = await Http.PostAsync($"api/Campaign/{Id}/maneuver/confirm", null);
+            if (response.IsSuccessStatusCode)
+            {
+                await RefreshGameStateAsync();
+                return;
+            }
+
+            _movementErrorMessage = await response.Content.ReadAsStringAsync();
         }
-        else
+        catch (Exception ex)
         {
-            var errBody = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"Error ending turn: {response.StatusCode} - {errBody}");
-            await JS.InvokeVoidAsync("alert", $"BŁĄD ZAKOŃCZENIA TURY ({response.StatusCode})! Treść błędu: {errBody}");
+            Console.WriteLine($"Unable to confirm movement: {ex.Message}");
+            _movementErrorMessage = "Unable to confirm movement. Try again.";
+        }
+        finally
+        {
+            _isConfirmingMovement = false;
         }
     }
 
-    private async Task RecalculateBattleAvailability()
+    private async Task PlanMovementAsync(UnitAppDto unit)
     {
-        _battleAvailable = false;
-        _contestedZones.Clear();
-        _claimableZones.Clear();
-        _battleZone = null;
-        _battleZoneName = string.Empty;
-        _battleUnits.Clear();
+        if (_stateApp == null || _gameDataApp == null) return;
+        var originZoneName = _trialManeuvers.TryGetValue(unit.Id, out var existingPlan)
+            ? existingPlan.OriginZoneName
+            : await GetZoneNameAtAsync(_dragStartX, _dragStartY);
+        var destinationZoneName = await GetZoneNameAtAsync(unit.X, unit.Y);
+        if (string.IsNullOrWhiteSpace(originZoneName) || string.IsNullOrWhiteSpace(destinationZoneName))
+        {
+            RestoreDraggedUnit(unit);
+            return;
+        }
 
-        if (_stateApp?.Zones == null || _stateApp?.Units == null || _stateApp.Units.Count == 0) return;
+        var maneuver = new UnitManeuver
+        {
+            UnitId = unit.Id,
+            TargetX = unit.X,
+            TargetY = unit.Y,
+            OriginZoneName = originZoneName,
+            DestinationZoneName = destinationZoneName
+        };
 
+        if (string.Equals(originZoneName, destinationZoneName, StringComparison.OrdinalIgnoreCase))
+        {
+            _trialManeuvers[unit.Id] = maneuver;
+            await SaveCompleteDraftAsync();
+            return;
+        }
+
+        if (_stateApp.AdjacencyGraph.TryGetValue(originZoneName, out var directNeighbors) && directNeighbors.Contains(destinationZoneName, StringComparer.OrdinalIgnoreCase))
+        {
+            _trialManeuvers[unit.Id] = maneuver;
+            await SaveCompleteDraftAsync();
+            return;
+        }
+
+        var possibleIntermediateRoutes = _stateApp.Zones
+            .Where(zone => string.Equals(zone.FactionName, _gameDataApp.MyFactionName, StringComparison.OrdinalIgnoreCase))
+            .Where(zone => _stateApp.AdjacencyGraph.TryGetValue(originZoneName, out var originNeighbors) && originNeighbors.Contains(zone.Name, StringComparer.OrdinalIgnoreCase))
+            .Where(zone => _stateApp.AdjacencyGraph.TryGetValue(zone.Name, out var intermediateNeighbors) && intermediateNeighbors.Contains(destinationZoneName, StringComparer.OrdinalIgnoreCase))
+            .Select(zone => zone.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!possibleIntermediateRoutes.Any())
+        {
+            RestoreDraggedUnit(unit);
+            return;
+        }
+
+        if (possibleIntermediateRoutes.Count == 1)
+        {
+            maneuver.IntermediateZoneName = possibleIntermediateRoutes[0];
+            _trialManeuvers[unit.Id] = maneuver;
+            await SaveCompleteDraftAsync();
+            return;
+        }
+
+        _pendingRouteManeuver = maneuver;
+        _pendingIntermediateRoutes = possibleIntermediateRoutes;
+        _pendingRouteDestinationName = destinationZoneName;
+        _showRouteChoiceModal = true;
+    }
+
+    private async Task ConfirmRouteChoice(string intermediateZoneName)
+    {
+        if (_pendingRouteManeuver == null) return;
+        _pendingRouteManeuver.IntermediateZoneName = intermediateZoneName;
+        _trialManeuvers[_pendingRouteManeuver.UnitId] = _pendingRouteManeuver;
+        CancelRouteChoice();
+        await SaveCompleteDraftAsync();
+    }
+
+    private void CancelRouteChoice()
+    {
+        if (_pendingRouteManeuver != null)
+        {
+            var unit = _stateApp?.Units.FirstOrDefault(candidate => candidate.Id == _pendingRouteManeuver.UnitId);
+            if (unit != null) RestoreDraggedUnit(unit);
+        }
+
+        _pendingRouteManeuver = null;
+        _pendingIntermediateRoutes.Clear();
+        _pendingRouteDestinationName = string.Empty;
+        _showRouteChoiceModal = false;
+    }
+
+    private void RestoreDraggedUnit(UnitAppDto unit)
+    {
+        if (_trialManeuvers.TryGetValue(unit.Id, out var existingPlan))
+        {
+            unit.X = existingPlan.TargetX;
+            unit.Y = existingPlan.TargetY;
+            return;
+        }
+
+        unit.X = _dragStartX;
+        unit.Y = _dragStartY;
+    }
+
+    private async Task<string> GetZoneNameAtAsync(double x, double y)
+    {
+        if (_stateApp?.Zones == null) return string.Empty;
+        var mappings = await JS.InvokeAsync<List<UnitZoneMapping>>("mapTools.assignUnitsToZones", new[]
+        {
+            new UnitAppDto { Id = "route-preview", X = x, Y = y }
+        }, _stateApp.Zones);
+        var zoneId = mappings.FirstOrDefault()?.ZoneId ?? -1;
+        return zoneId >= 0 && zoneId < _stateApp.Zones.Count ? _stateApp.Zones[zoneId].Name : string.Empty;
+    }
+
+    private async Task<bool> SaveCompleteDraftAsync()
+    {
+        if (_stateApp == null || _gameDataApp == null || IsMyFactionMovementConfirmed) return false;
+
+        var currentMappings = await JS.InvokeAsync<List<UnitZoneMapping>>("mapTools.assignUnitsToZones", _stateApp.Units.Where(unit => unit.FactionName == _gameDataApp.MyFactionName).ToList(), _stateApp.Zones);
+        var mappingsByUnitId = currentMappings.ToDictionary(mapping => mapping.UnitId, mapping => mapping.ZoneId);
+        var completeDraft = new List<UnitManeuver>();
+
+        foreach (var unit in _stateApp.Units.Where(candidate => candidate.FactionName == _gameDataApp.MyFactionName))
+        {
+            if (_trialManeuvers.TryGetValue(unit.Id, out var plannedManeuver))
+            {
+                completeDraft.Add(plannedManeuver);
+                continue;
+            }
+
+            if (!mappingsByUnitId.TryGetValue(unit.Id, out var zoneId) || zoneId < 0 || zoneId >= _stateApp.Zones.Count) continue;
+            var zoneName = _stateApp.Zones[zoneId].Name;
+            completeDraft.Add(new UnitManeuver
+            {
+                UnitId = unit.Id,
+                TargetX = unit.X,
+                TargetY = unit.Y,
+                OriginZoneName = zoneName,
+                DestinationZoneName = zoneName
+            });
+        }
+
+        if (completeDraft.Count != _stateApp.Units.Count(unit => unit.FactionName == _gameDataApp.MyFactionName))
+        {
+            _movementErrorMessage = "Every unit must be located inside a named sector before confirming.";
+            return false;
+        }
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/maneuver/draft", completeDraft);
+        if (response.IsSuccessStatusCode) return true;
+
+        _movementErrorMessage = await response.Content.ReadAsStringAsync();
+        await RefreshGameStateAsync();
+        return false;
+    }
+
+    private async Task SynchronizeUntrackedUnitZonesAsync()
+    {
+        if (_unitZoneSynchronizationAttempted || _stateApp == null || !_stateApp.Units.Any(unit => string.IsNullOrWhiteSpace(unit.CurrentZoneName))) return;
+
+        _unitZoneSynchronizationAttempted = true;
         var mappings = await JS.InvokeAsync<List<UnitZoneMapping>>("mapTools.assignUnitsToZones", _stateApp.Units, _stateApp.Zones);
-        var unitsByZone = mappings.GroupBy(m => m.ZoneId).ToList();
+        var zoneNamesByUnitId = mappings
+            .Where(mapping => mapping.ZoneId >= 0 && mapping.ZoneId < _stateApp.Zones.Count)
+            .ToDictionary(mapping => mapping.UnitId, mapping => _stateApp.Zones[mapping.ZoneId].Name);
 
-        foreach (var group in unitsByZone)
+        foreach (var unit in _stateApp.Units)
         {
-            var zoneId = group.Key;
-            if (zoneId < 0 || zoneId >= _stateApp.Zones.Count) continue;
-            
-            var zoneInfo = _stateApp.Zones[zoneId];
-            var zName = zoneInfo.Name ?? "";
-            var tempZoneName = (string.IsNullOrWhiteSpace(zName) || zName.ToUpper().Contains("UNKNOWN")) ? $"Sector #{zoneId}" : zName;
+            if (zoneNamesByUnitId.TryGetValue(unit.Id, out var zoneName)) unit.CurrentZoneName = zoneName;
+        }
 
-            var unitIdsInZone = group.Select(m => m.UnitId).ToList();
-            var unitsInZone = _stateApp.Units.Where(u => unitIdsInZone.Contains(u.Id)).ToList();
-            var factions = unitsInZone.Select(u => u.FactionName).Where(f => !string.IsNullOrWhiteSpace(f)).Distinct().ToList();
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/unit-zones", zoneNamesByUnitId);
+        if (!response.IsSuccessStatusCode)
+        {
+            _movementErrorMessage = "The server could not synchronize unit positions with the map.";
+            _unitZoneSynchronizationAttempted = false;
+        }
+    }
 
-            if (factions.Count >= 2)
+    private Task RecalculateBattleAvailability()
+    {
+        _battleAvailable = _stateApp?.ActiveBattles.Any(battle => !battle.IsResolved) == true;
+        if (_activeBattleApp != null && _stateApp != null)
+        {
+            _activeBattleApp = _stateApp.ActiveBattles.FirstOrDefault(battle => battle.Id == _activeBattleApp.Id);
+            if (_activeBattleApp == null)
             {
-                if (_stateApp.BattleResults == null || !_stateApp.BattleResults.Any(br => br.ZoneName == tempZoneName && br.TurnNumber == _stateApp.TurnNumber))
-                {
-                    _contestedZones.Add(new ContestedZone
-                    {
-                        ZoneId = zoneId,
-                        ZoneName = tempZoneName,
-                        Zone = zoneInfo,
-                        Units = unitsInZone,
-                        Factions = factions
-                    });
-                }
-            }
-            else if (factions.Count == 1 && factions.First() == _gameDataApp.MyFactionName)
-            {
-                if (zoneInfo.FactionName != _gameDataApp.MyFactionName)
-                {
-                    _claimableZones.Add(new ClaimableZone
-                    {
-                        ZoneId = zoneId,
-                        ZoneName = tempZoneName,
-                        Zone = zoneInfo
-                    });
-                }
+                _showBattlePanel = false;
+                _showStanceModal = false;
             }
         }
 
-        if (_contestedZones.Any()) _battleAvailable = true;
+        if (_showStanceModal && _stateApp?.PendingStances.TryGetValue(_battleZoneName, out var submittedStances) == true &&
+            submittedStances.ContainsKey(_gameDataApp?.MyFactionName ?? string.Empty))
+        {
+            _showStanceModal = false;
+            _showBattlePanel = _activeBattleApp != null;
+        }
+
         StateHasChanged();
+        return Task.CompletedTask;
     }
 
-    private void OpenStanceSelection(ContestedZone cz)
+    private void OpenBattle(ActiveBattleAppDto battle)
     {
-        _battleZone = cz.Zone;
-        _battleZoneName = cz.ZoneName;
-        _battleUnits = cz.Units;
-
+        _actionErrorMessage = string.Empty;
+        _activeBattleApp = battle;
+        _battleZoneName = battle.ZoneName;
+        _battleZone = _stateApp?.Zones.FirstOrDefault(zone => zone.Name == battle.ZoneName);
+        _battleUnits = _stateApp?.Units.Where(unit => battle.UnitIds.Contains(unit.Id)).ToList() ?? [];
+        _scenarioName = battle.ScenarioName;
         _majorPoints.Clear();
         _minorPoints.Clear();
-        _factionStances.Clear();
+        _factionStances = _stateApp?.PendingStances.TryGetValue(battle.ZoneName, out var savedStances) == true
+            ? new Dictionary<string, BattleStance>(savedStances)
+            : battle.Factions.ToDictionary(faction => faction, _ => BattleStance.Defend);
 
-        foreach (var faction in cz.Factions)
+        foreach (var faction in battle.Factions)
         {
             _majorPoints[faction] = 0;
             _minorPoints[faction] = 0;
-            _factionStances[faction] = BattleStance.Defend; 
         }
 
-        _showStanceModal = true;
+        _showBattlePanel = true;
+        _showStanceModal = false;
+    }
+
+    private void OpenBattleForStance(ActiveBattleAppDto battle)
+    {
+        OpenBattle(battle);
         _showBattlePanel = false;
+        _showStanceModal = true;
+    }
+
+    private async Task ConfigureAmphibiousBattle()
+    {
+        _actionErrorMessage = string.Empty;
+        if (_activeBattleApp == null)
+        {
+            _actionErrorMessage = "Open a battle before saving its configuration.";
+            return;
+        }
+
+        if (_activeBattleApp.IsAmphibious &&
+            (string.IsNullOrWhiteSpace(_activeBattleApp.AttackerFaction) ||
+             string.IsNullOrWhiteSpace(_activeBattleApp.DefenderFaction) ||
+             string.Equals(_activeBattleApp.AttackerFaction, _activeBattleApp.DefenderFaction, StringComparison.OrdinalIgnoreCase)))
+        {
+            _actionErrorMessage = "Choose two different factions: attacker and defender.";
+            return;
+        }
+
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/battle/configure", new ConfigureBattleAppDto
+        {
+            BattleId = _activeBattleApp.Id,
+            IsAmphibious = _activeBattleApp.IsAmphibious,
+            AttackerFaction = _activeBattleApp.AttackerFaction,
+            DefenderFaction = _activeBattleApp.DefenderFaction
+        });
+        if (response.IsSuccessStatusCode)
+        {
+            await RefreshGameStateAsync();
+            return;
+        }
+
+        _actionErrorMessage = await ReadErrorMessageAsync(response, "The battle configuration could not be saved.");
     }
 
     private void SetStance(string faction, BattleStance stance)
@@ -736,20 +1118,61 @@
         _factionStances[faction] = stance;
     }
 
-    private void ConfirmStances()
+    private async Task SubmitMyStance()
     {
-        _showStanceModal = false;
-        _showBattlePanel = true;
+        _actionErrorMessage = string.Empty;
+        if (_activeBattleApp == null || string.IsNullOrWhiteSpace(_battleZoneName))
+        {
+            _actionErrorMessage = "This battle is no longer available. Reopen it from the combat list.";
+            return;
+        }
+
+        var myFaction = _gameDataApp.MyFactionName;
+        var myStance = _factionStances.ContainsKey(myFaction) ? _factionStances[myFaction] : BattleStance.Defend;
+
+        var factionsInvolved = _battleUnits.Select(u => u.FactionName).Distinct().ToList();
+
+        var dto = new SubmitStanceAppDto
+        {
+            ZoneName = _battleZoneName,
+            Stance = myStance,
+            FactionsInvolved = factionsInvolved
+        };
+
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/stance", dto);
+        if (response.IsSuccessStatusCode)
+        {
+            // A stance is final immediately. Closing this dialog prevents each client from
+            // waiting on a stale local copy of the other faction's choice.
+            _showStanceModal = false;
+            _showBattlePanel = true;
+            await RefreshGameStateAsync();
+            return;
+        }
+
+        _actionErrorMessage = await ReadErrorMessageAsync(response, "Your stance could not be submitted.");
     }
 
     private void CancelBattle()
     {
         _showBattlePanel = false;
+        _actionErrorMessage = string.Empty;
     }
 
     private async Task ConfirmBattleResults()
     {
-        if (_stateApp == null || _battleZone == null) return;
+        _actionErrorMessage = string.Empty;
+        if (_stateApp == null || _battleZone == null || _activeBattleApp == null)
+        {
+            _actionErrorMessage = "This battle is no longer available. Reopen it from the combat list.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_scenarioName))
+        {
+            _actionErrorMessage = "Enter the scenario name before confirming the battle.";
+            return;
+        }
 
         var updatedFiles = new Dictionary<string, string>();
         foreach (var u in _battleUnits)
@@ -759,46 +1182,58 @@
 
         var dto = new BattleResultAppDto
         {
+            BattleId = _activeBattleApp.Id,
             ZoneName = _battleZoneName,
             TurnNumber = _stateApp.TurnNumber,
             Stances = _factionStances,
             MajorPoints = _majorPoints,
             MinorPoints = _minorPoints,
-            UpdatedUnitFiles = updatedFiles
+            UpdatedUnitFiles = updatedFiles,
+            ScenarioName = _scenarioName,
+            IsAmphibious = _activeBattleApp.IsAmphibious,
+            AttackerFaction = _activeBattleApp.AttackerFaction,
+            DefenderFaction = _activeBattleApp.DefenderFaction
         };
 
         var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/battle", dto);
-        if (!response.IsSuccessStatusCode) return;
-
-        if (_stateApp.BattleResults == null) _stateApp.BattleResults = new();
-        _stateApp.BattleResults.Add(dto);
-
-        var winnerFaction = _majorPoints.OrderByDescending(x => x.Value)
-            .ThenByDescending(x => _minorPoints.ContainsKey(x.Key) ? _minorPoints[x.Key] : 0)
-            .FirstOrDefault().Key;
-
-        if (!string.IsNullOrEmpty(winnerFaction))
+        if (!response.IsSuccessStatusCode)
         {
-            var winnerColor = GetFactionColor(winnerFaction);
-            await JS.InvokeVoidAsync("mapTools.floodFillRaw", _battleZone.X, _battleZone.Y, winnerColor);
-            _battleZone.FactionName = winnerFaction;
-            
+            _actionErrorMessage = await ReadErrorMessageAsync(response, "The battle could not be confirmed.");
+            return;
         }
 
         _showBattlePanel = false;
-        await RecalculateBattleAvailability();
-        StateHasChanged();
+        _activeBattleApp = null;
+        await RefreshGameStateAsync();
     }
 
-    private async Task ClaimZone(ClaimableZone cz)
+    private async Task ColorBattle(ActiveBattleAppDto battle, bool skip)
     {
-        var myColor = GetFactionColor(_gameDataApp.MyFactionName);
-        await JS.InvokeVoidAsync("mapTools.floodFillRaw", cz.Zone.X, cz.Zone.Y, myColor);
-        cz.Zone.FactionName = _gameDataApp.MyFactionName;
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/battle/color", new BattleColoringAppDto
+        {
+            BattleId = battle.Id,
+            Skip = skip,
+            FactionName = _coloringFactionName
+        });
 
-        await RecalculateBattleAvailability();
-        StateHasChanged();
+        if (response.IsSuccessStatusCode)
+        {
+            await RefreshGameStateAsync();
+            return;
+        }
+
+        _actionErrorMessage = await ReadErrorMessageAsync(response, "The sector coloring could not be saved.");
     }
+
+    private async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, string fallback)
+    {
+        var serverMessage = await response.Content.ReadAsStringAsync();
+        return string.IsNullOrWhiteSpace(serverMessage) ? fallback : serverMessage.Trim('"');
+    }
+
+    private void ZoomGameMapIn() => _gameMapZoom = Math.Min(200, _gameMapZoom + 25);
+    private void ZoomGameMapOut() => _gameMapZoom = Math.Max(50, _gameMapZoom - 25);
+    private void ResetGameMapZoom() => _gameMapZoom = 100;
 
     public class MapDimensions
     {
@@ -808,6 +1243,7 @@
 
     private async Task OpenExcelEditor(UnitAppDto unitApp)
     {
+        _actionErrorMessage = string.Empty;
         _editingUnitApp = unitApp;
         _activeExcelGrid = new List<List<string>>();
 
@@ -845,35 +1281,32 @@
         }
     }
 
-    private async Task GenerateBlankTemplate()
+    private void GenerateBlankTemplate()
     {
         _originalExcelBytes = null;
-        _activeExcelGrid = new List<List<string>>();
+        _activeExcelGrid = new List<List<string>> { new() { string.Empty } };
     }
 
     private void AddExcelRow()
     {
-        if (_activeExcelGrid != null && _activeExcelGrid.Any())
-        {
-            var colCount = _activeExcelGrid.First().Count;
-            var newRow = new List<string>(new string[colCount]);
-            for (var i = 0; i < colCount; i++) newRow[i] = "";
-            _activeExcelGrid.Add(newRow);
-        }
+        if (_activeExcelGrid == null) return;
+        var colCount = _activeExcelGrid.FirstOrDefault()?.Count ?? 1;
+        _activeExcelGrid.Add(Enumerable.Repeat(string.Empty, Math.Max(1, colCount)).ToList());
     }
 
     private void AddExcelColumn()
     {
-        if (_activeExcelGrid != null)
+        if (_activeExcelGrid == null) return;
+        if (!_activeExcelGrid.Any())
         {
-            foreach (var row in _activeExcelGrid)
-            {
-                row.Add("");
-            }
+            _activeExcelGrid.Add(new List<string> { string.Empty });
+            return;
         }
+
+        foreach (var row in _activeExcelGrid) row.Add(string.Empty);
     }
 
-    private void SaveExcelData()
+    private async Task SaveExcelData()
     {
         if (_editingUnitApp != null && _activeExcelGrid != null)
         {
@@ -901,6 +1334,21 @@
             using var outStream = new MemoryStream();
             workbook.SaveAs(outStream);
             _editingUnitApp.ExcelDatabase64 = Convert.ToBase64String(outStream.ToArray());
+
+            if (_showRosterModal)
+            {
+                var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/unit/{_editingUnitApp.Id}/excel", new UpdateUnitExcelAppDto
+                {
+                    ExcelFileName = _editingUnitApp.ExcelFileName,
+                    ExcelDatabase64 = _editingUnitApp.ExcelDatabase64
+                });
+                if (!response.IsSuccessStatusCode)
+                {
+                    _actionErrorMessage = await ReadErrorMessageAsync(response, "The unit spreadsheet could not be saved.");
+                    return;
+                }
+            }
+
             CloseExcelEditor();
         }
     }
@@ -924,32 +1372,43 @@
         public int ZoneId { get; set; }
     }
 
-    public class ContestedZone
+    private async Task RefreshGameStateAsync()
     {
-        public int ZoneId { get; set; }
-        public string ZoneName { get; set; }
-        public ZoneSeedAppDto Zone { get; set; }
-        public List<UnitAppDto> Units { get; set; }
-        public List<string> Factions { get; set; }
+        await _stateRefreshLock.WaitAsync();
+        try
+        {
+            await LoadGameDataAsync();
+            await PaintZoneOwnershipAsync();
+            await RecalculateBattleAvailability();
+            StateHasChanged();
+        }
+        finally
+        {
+            _stateRefreshLock.Release();
+        }
     }
 
-    public class ClaimableZone
+    private async Task PaintZoneOwnershipAsync()
     {
-        public int ZoneId { get; set; }
-        public string ZoneName { get; set; }
-        public ZoneSeedAppDto Zone { get; set; }
+        if (!_mapRendered || _stateApp?.Zones == null) return;
+
+        await JS.InvokeVoidAsync("mapTools.resetMap");
+
+        foreach (var zone in _stateApp.Zones)
+        {
+            var factionColor = GetFactionColor(zone.FactionName);
+            if (!string.IsNullOrEmpty(factionColor))
+                await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, factionColor);
+        }
     }
 
-    private async Task RefreshGameState()
+    public async ValueTask DisposeAsync()
     {
-        await OnInitializedAsync();
-        await RecalculateBattleAvailability();
-        StateHasChanged();
-    }
-
-    public class PointDto
-    {
-        public double X { get; set; }
-        public double Y { get; set; }
+        if (_hubConnection is not null)
+        {
+            if (_hubConnection.State == HubConnectionState.Connected)
+                await _hubConnection.SendAsync("LeaveCampaignGroup", Id);
+            await _hubConnection.DisposeAsync();
+        }
     }
 }

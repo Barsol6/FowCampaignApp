@@ -3,6 +3,7 @@ using FluentValidation;
 using FowCampaign.Api.Modules.Account;
 using FowCampaign.Api.Modules.Database;
 using FowCampaign.Api.Modules.Database.Repositories;
+using FowCampaign.Api.Modules.SignalR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -79,6 +80,8 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
+builder.Services.AddSignalR();
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -116,5 +119,7 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<FowCampaignContext>();
     db.Database.Migrate();
 }
+
+app.MapHub<GameHub>("/gamehub");
 
 app.Run();
