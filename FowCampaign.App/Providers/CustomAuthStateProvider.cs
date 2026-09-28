@@ -24,7 +24,10 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
 
     public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
-        if (_cachedAuthenticationState != null) return _cachedAuthenticationState;
+        if (_cachedAuthenticationState != null)
+        {
+            return _cachedAuthenticationState;
+        }
 
         try
         {

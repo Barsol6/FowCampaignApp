@@ -36,14 +36,22 @@ public class PasswordHash
     {
         var user = await UserRepository.GetUserAsync(username);
 
-        if (user is null) return false;
+        if (user is null)
+        {
+            return false;
+        }
+
         _hashedPassword = user.Password;
 
 
         var passwordCheck = _passwordHasher.VerifyHashedPassword(username,
             _hashedPassword ?? throw new InvalidOperationException(),
             password ?? throw new ArgumentNullException(nameof(password)));
-        if (passwordCheck is PasswordVerificationResult.Success) LoggedIn = true;
+        if (passwordCheck is PasswordVerificationResult.Success)
+        {
+            LoggedIn = true;
+        }
+
         return passwordCheck switch
         {
             PasswordVerificationResult.Failed => false,

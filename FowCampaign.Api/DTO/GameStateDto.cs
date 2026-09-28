@@ -15,6 +15,8 @@ public class GameStateDto
     public Dictionary<string, List<UnitManeuver>> PendingManeuvers { get; set; } = new();
     public Dictionary<string, List<UnitManeuver>> MovementDrafts { get; set; } = new();
     public List<string> ConfirmedMovementFactions { get; set; } = new();
+    public Dictionary<string, string> PendingUncontestedColors { get; set; } = new();
+    public bool ColoringCompletesRound { get; set; }
     public Dictionary<string, List<string>> AdjacencyGraph { get; set; } = new();
     public List<BattleResultApiDto> BattleResults { get; set; } = new();
     public List<ActiveBattleApiDto> ActiveBattles { get; set; } = new();

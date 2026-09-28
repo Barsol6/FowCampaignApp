@@ -17,7 +17,10 @@ builder.Services.AddTransient<CookieHandler>();
 
 var apiUrl = builder.Configuration["ApiBaseUrl"] ?? builder.HostEnvironment.BaseAddress;
 
-builder.Services.AddHttpClient("API", client => { client.BaseAddress = new Uri(apiUrl); })
+builder.Services.AddHttpClient("API", client =>
+    {
+        client.BaseAddress = new Uri(apiUrl);
+    })
     .AddHttpMessageHandler<CookieHandler>();
 
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("API"));

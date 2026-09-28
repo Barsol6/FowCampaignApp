@@ -63,7 +63,7 @@
                 <div class="game-map-viewport">
                     <div class="canvas-container game-map-surface game-map-zoom-@_gameMapZoom"
                          @onmousemove="HandleWrapperMouseMove"
-                         @onmouseleave="HideRegionTooltip"
+                         @onmouseleave="HandleMapMouseLeave"
                          @onmouseup="HandleWrapperMouseUp">
 
                         <canvas id="gameCanvas" class="game-canvas game-map-canvas"></canvas>
@@ -132,7 +132,7 @@
                                 SCALE: @(def?.Name ?? "UNIT") [@(_selectedUnitForScale.Scale > 0 ? _selectedUnitForScale.Scale.ToString("0.0") : "1.0")]
                             </label>
                             <input type="range" min="0.3" max="2.5" step="0.1" value="@(_selectedUnitForScale.Scale > 0 ? _selectedUnitForScale.Scale : 1.0)"
-                                   @oninput='e => { _selectedUnitForScale.Scale = double.TryParse(e.Value?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : 1.0; }'
+                                   @oninput="UpdateSelectedUnitScaleAsync"
                                    style="width: 100%;"/>
                         </div>
                     }
@@ -185,6 +185,25 @@
                     else if (_stateApp.Phase == TurnPhase.Coloring)
                     {
                         <div class="status-box status-active mb-10"><strong>STATUS:</strong> Resolve territory coloring</div>
+                        @if (!string.IsNullOrWhiteSpace(_actionErrorMessage))
+                        {
+                            <div class="action-validation-message">@_actionErrorMessage</div>
+                        }
+                        @foreach (var pending in _stateApp.PendingUncontestedColors.OrderBy(entry => entry.Key))
+                        {
+                            <div class="status-box status-battle mb-5">
+                                <strong>@pending.Key</strong><br/>
+                                <span>Occupied by @pending.Value</span>
+                                @if (string.Equals(pending.Value, _gameDataApp.MyFactionName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <button class="btn-full btn-confirm mt-10" @onclick="() => ColorUncontestedSectorAsync(pending.Key)">COLOR SECTOR</button>
+                                }
+                                else
+                                {
+                                    <span> — awaiting @pending.Value</span>
+                                }
+                            </div>
+                        }
                         @foreach (var battle in _stateApp.ActiveBattles.Where(b => !b.ColoringResolved))
                         {
                             <div class="status-box status-battle mb-5">
@@ -703,6 +722,7 @@
     private string _coloringFactionName = string.Empty;
     private string _actionErrorMessage = string.Empty;
     private int _gameMapZoom = 100;
+    private int _layoutZoom = -1;
     private readonly Dictionary<string, UnitManeuver> _trialManeuvers = new();
     private double _dragStartX;
     private double _dragStartY;
@@ -750,7 +770,9 @@
     {
         var gameData = await Http.GetFromJsonAsync<LoadGameDataAppDto>($"api/Campaign/{Id}");
         if (gameData == null || string.IsNullOrWhiteSpace(gameData.GameStateJson))
+        {
             throw new InvalidOperationException("Campaign data is unavailable.");
+        }
 
         var state = JsonSerializer.Deserialize<GameStateAppDto>(gameData.GameStateJson, new JsonSerializerOptions
         {
@@ -759,45 +781,71 @@
         });
 
         if (state == null)
+        {
             throw new InvalidOperationException("Campaign state is invalid.");
+        }
 
         if (string.IsNullOrWhiteSpace(state.CurrentTurnFaction))
+        {
             state.CurrentTurnFaction = state.Factions.FirstOrDefault()?.Name ?? string.Empty;
+        }
 
         if (state.TurnNumber < 1)
+        {
             state.TurnNumber = 1;
+        }
 
         _gameDataApp = gameData;
         _stateApp = state;
+        if (_selectedUnitForScale != null)
+        {
+            _selectedUnitForScale = state.Units.FirstOrDefault(unit => unit.Id == _selectedUnitForScale.Id);
+        }
         _trialManeuvers.Clear();
-        var hasVisibleDraft = state.MovementDrafts.TryGetValue(gameData.MyFactionName, out var savedDraft);
-        if (!hasVisibleDraft)
-            state.PendingManeuvers.TryGetValue(gameData.MyFactionName, out savedDraft);
+        List<UnitManeuver>? savedDraft = null;
+        if (state.Phase is TurnPhase.Moving or TurnPhase.PostCombatMoving)
+        {
+            var hasVisibleDraft = state.MovementDrafts.TryGetValue(gameData.MyFactionName, out savedDraft);
+            if (!hasVisibleDraft)
+            {
+                state.PendingManeuvers.TryGetValue(gameData.MyFactionName, out savedDraft);
+            }
+        }
 
         if (savedDraft != null)
         {
             foreach (var maneuver in savedDraft)
             {
                 if (!IsMyFactionMovementConfirmed)
+                {
                     _trialManeuvers[maneuver.UnitId] = maneuver;
+                }
             }
 
             foreach (var maneuver in savedDraft)
             {
                 var unit = state.Units.FirstOrDefault(candidate => candidate.Id == maneuver.UnitId);
-                if (unit == null) continue;
+                if (unit == null)
+                {
+                    continue;
+                }
                 unit.X = maneuver.TargetX;
                 unit.Y = maneuver.TargetY;
             }
         }
 
         if (string.IsNullOrWhiteSpace(_coloringFactionName))
+        {
             _coloringFactionName = state.Factions.FirstOrDefault()?.Name ?? string.Empty;
+        }
     }
 
     private async Task InitializeHubConnectionAsync()
     {
-        if (_hubConnection != null) return;
+        if (_hubConnection != null)
+        {
+            return;
+        }
 
         var apiBaseUrl = Configuration["ApiBaseUrl"] ?? NavigationManager.BaseUri;
         var hubUrl = $"{apiBaseUrl.TrimEnd('/')}/gamehub";
@@ -813,8 +861,14 @@
             .WithAutomaticReconnect()
             .Build();
 
-        _hubConnection.On("GameUpdated", () => InvokeAsync(RefreshGameStateAsync));
-        _hubConnection.Reconnected += async _ => await JoinCampaignHubGroupAsync();
+        _hubConnection.On("GameUpdated", async () =>
+        {
+            await InvokeAsync(RefreshGameStateAsync);
+        });
+        _hubConnection.Reconnected += async _ =>
+        {
+            await JoinCampaignHubGroupAsync();
+        };
 
         await _hubConnection.StartAsync();
         await JoinCampaignHubGroupAsync();
@@ -823,7 +877,9 @@
     private async Task JoinCampaignHubGroupAsync()
     {
         if (_hubConnection?.State == HubConnectionState.Connected)
+        {
             await _hubConnection.SendAsync("JoinCampaignGroup", Id);
+        }
     }
 
     private string GetFactionColor(string factionName) => _stateApp?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
@@ -846,6 +902,9 @@
 
                     await PaintZoneOwnershipAsync();
 
+                    await ReflowUnitLayoutAsync();
+                    _layoutZoom = _gameMapZoom;
+
                     StateHasChanged();
                 }
 
@@ -856,14 +915,26 @@
                 Console.WriteLine("Map Render Failed: " + ex.Message);
             }
         }
+        else if (_mapRendered && !_isLoading && !_loadError && _layoutZoom != _gameMapZoom && _draggingUnitApp == null)
+        {
+            await ReflowUnitLayoutAsync();
+            _layoutZoom = _gameMapZoom;
+            StateHasChanged();
+        }
     }
 
     private async Task StartDrag(UnitAppDto unitApp)
     {
         _selectedUnitForScale = unitApp;
 
-        if (_stateApp.Phase != TurnPhase.Moving && _stateApp.Phase != TurnPhase.PostCombatMoving) return;
-        if (IsMyFactionMovementConfirmed) return;
+        if (_stateApp.Phase != TurnPhase.Moving && _stateApp.Phase != TurnPhase.PostCombatMoving)
+        {
+            return;
+        }
+        if (IsMyFactionMovementConfirmed)
+        {
+            return;
+        }
 
         if (unitApp.FactionName == _gameDataApp.MyFactionName)
         {
@@ -871,8 +942,22 @@
             _dragStartX = unitApp.X;
             _dragStartY = unitApp.Y;
             var visualDims = await JS.InvokeAsync<MapDimensions>("mapTools.getClientDimensions", "gameCanvas");
-            if (visualDims.Width > 0) _dragScaleFactor = _mapRealWidth / visualDims.Width;
+            if (visualDims.Width > 0)
+            {
+                _dragScaleFactor = _mapRealWidth / visualDims.Width;
+            }
         }
+    }
+
+    private async Task UpdateSelectedUnitScaleAsync(ChangeEventArgs e)
+    {
+        if (_selectedUnitForScale == null)
+        {
+            return;
+        }
+        _selectedUnitForScale.Scale = double.TryParse(e.Value?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var value)
+            ? value : 1.0;
+        await ReflowUnitLayoutAsync();
     }
 
     private async Task HandleWrapperMouseMove(MouseEventArgs e)
@@ -888,7 +973,16 @@
         _hoveredRegion = await JS.InvokeAsync<HoveredRegion?>("mapTools.getHoveredZone", e.ClientX, e.ClientY);
     }
 
-    private void HideRegionTooltip() => _hoveredRegion = null;
+    private void HandleMapMouseLeave()
+    {
+        _hoveredRegion = null;
+        if (_draggingUnitApp == null)
+        {
+            return;
+        }
+        RestoreDraggedUnit(_draggingUnitApp);
+        _draggingUnitApp = null;
+    }
 
     private async Task HandleWrapperMouseUp(MouseEventArgs _)
     {
@@ -902,13 +996,19 @@
 
     private async Task ConfirmManeuvers()
     {
-        if (_stateApp == null || _gameDataApp == null || _isConfirmingMovement) return;
+        if (_stateApp == null || _gameDataApp == null || _isConfirmingMovement)
+        {
+            return;
+        }
 
         _isConfirmingMovement = true;
         _movementErrorMessage = string.Empty;
         try
         {
-            if (!await SaveCompleteDraftAsync()) return;
+            if (!await SaveCompleteDraftAsync())
+            {
+                return;
+            }
 
             var response = await Http.PostAsync($"api/Campaign/{Id}/maneuver/confirm", null);
             if (response.IsSuccessStatusCode)
@@ -932,7 +1032,10 @@
 
     private async Task PlanMovementAsync(UnitAppDto unit)
     {
-        if (_stateApp == null || _gameDataApp == null) return;
+        if (_stateApp == null || _gameDataApp == null)
+        {
+            return;
+        }
         var originZoneName = _trialManeuvers.TryGetValue(unit.Id, out var existingPlan)
             ? existingPlan.OriginZoneName
             : await GetZoneNameAtAsync(_dragStartX, _dragStartY);
@@ -942,6 +1045,17 @@
             RestoreDraggedUnit(unit);
             return;
         }
+
+        var snapped = await JS.InvokeAsync<MapPosition?>("mapTools.snapUnitToZone",
+            destinationZoneName, unit.X, unit.Y, _stateApp.Units, unit.Id, unit.Scale);
+        if (snapped == null)
+        {
+            RestoreDraggedUnit(unit);
+            _movementErrorMessage = "This army could not be placed inside a sector.";
+            return;
+        }
+        unit.X = snapped.X;
+        unit.Y = snapped.Y;
 
         var maneuver = new UnitManeuver
         {
@@ -999,7 +1113,10 @@
 
     private async Task ConfirmRouteChoice(string intermediateZoneName)
     {
-        if (_pendingRouteManeuver == null) return;
+        if (_pendingRouteManeuver == null)
+        {
+            return;
+        }
         _pendingRouteManeuver.IntermediateZoneName = intermediateZoneName;
         _trialManeuvers[_pendingRouteManeuver.UnitId] = _pendingRouteManeuver;
         CancelRouteChoice();
@@ -1011,7 +1128,10 @@
         if (_pendingRouteManeuver != null)
         {
             var unit = _stateApp?.Units.FirstOrDefault(candidate => candidate.Id == _pendingRouteManeuver.UnitId);
-            if (unit != null) RestoreDraggedUnit(unit);
+            if (unit != null)
+            {
+                RestoreDraggedUnit(unit);
+            }
         }
 
         _pendingRouteManeuver = null;
@@ -1035,18 +1155,15 @@
 
     private async Task<string> GetZoneNameAtAsync(double x, double y)
     {
-        if (_stateApp?.Zones == null) return string.Empty;
-        var mappings = await JS.InvokeAsync<List<UnitZoneMapping>>("mapTools.assignUnitsToZones", new[]
-        {
-            new UnitAppDto { Id = "route-preview", X = x, Y = y }
-        }, _stateApp.Zones);
-        var zoneId = mappings.FirstOrDefault()?.ZoneId ?? -1;
-        return zoneId >= 0 && zoneId < _stateApp.Zones.Count ? _stateApp.Zones[zoneId].Name : string.Empty;
+        return await JS.InvokeAsync<string>("mapTools.getZoneNameAt", x, y);
     }
 
     private async Task<bool> SaveCompleteDraftAsync()
     {
-        if (_stateApp == null || _gameDataApp == null || IsMyFactionMovementConfirmed) return false;
+        if (_stateApp == null || _gameDataApp == null || IsMyFactionMovementConfirmed)
+        {
+            return false;
+        }
 
         var currentMappings = await JS.InvokeAsync<List<UnitZoneMapping>>("mapTools.assignUnitsToZones", _stateApp.Units.Where(unit => unit.FactionName == _gameDataApp.MyFactionName).ToList(), _stateApp.Zones);
         var mappingsByUnitId = currentMappings.ToDictionary(mapping => mapping.UnitId, mapping => mapping.ZoneId);
@@ -1064,7 +1181,10 @@
                 string.Equals(zone.Name, unit.CurrentZoneName, StringComparison.OrdinalIgnoreCase))?.Name;
             if (zoneName == null)
             {
-                if (!mappingsByUnitId.TryGetValue(unit.Id, out var zoneId) || zoneId < 0 || zoneId >= _stateApp.Zones.Count) continue;
+                if (!mappingsByUnitId.TryGetValue(unit.Id, out var zoneId) || zoneId < 0 || zoneId >= _stateApp.Zones.Count)
+                {
+                    continue;
+                }
                 zoneName = _stateApp.Zones[zoneId].Name;
             }
             completeDraft.Add(new UnitManeuver
@@ -1083,7 +1203,10 @@
             return false;
         }
         var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/maneuver/draft", completeDraft);
-        if (response.IsSuccessStatusCode) return true;
+        if (response.IsSuccessStatusCode)
+        {
+            return true;
+        }
 
         _movementErrorMessage = await response.Content.ReadAsStringAsync();
         await RefreshGameStateAsync();
@@ -1092,7 +1215,10 @@
 
     private async Task SynchronizeUntrackedUnitZonesAsync()
     {
-        if (_unitZoneSynchronizationAttempted || _stateApp == null || !_stateApp.Units.Any(unit => string.IsNullOrWhiteSpace(unit.CurrentZoneName))) return;
+        if (_unitZoneSynchronizationAttempted || _stateApp == null || !_stateApp.Units.Any(unit => string.IsNullOrWhiteSpace(unit.CurrentZoneName)))
+        {
+            return;
+        }
 
         _unitZoneSynchronizationAttempted = true;
         var mappings = await JS.InvokeAsync<List<UnitZoneMapping>>("mapTools.assignUnitsToZones", _stateApp.Units, _stateApp.Zones);
@@ -1102,7 +1228,10 @@
 
         foreach (var unit in _stateApp.Units)
         {
-            if (zoneNamesByUnitId.TryGetValue(unit.Id, out var zoneName)) unit.CurrentZoneName = zoneName;
+            if (zoneNamesByUnitId.TryGetValue(unit.Id, out var zoneName))
+            {
+                unit.CurrentZoneName = zoneName;
+            }
         }
 
         var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/unit-zones", zoneNamesByUnitId);
@@ -1266,7 +1395,10 @@
         var updatedFiles = new Dictionary<string, string>();
         foreach (var u in _battleUnits)
         {
-            if (!string.IsNullOrWhiteSpace(u.ExcelDatabase64)) updatedFiles[u.Id] = u.ExcelDatabase64;
+            if (!string.IsNullOrWhiteSpace(u.ExcelDatabase64))
+            {
+                updatedFiles[u.Id] = u.ExcelDatabase64;
+            }
         }
 
         var dto = new BattleResultAppDto
@@ -1312,6 +1444,22 @@
         }
 
         _actionErrorMessage = await ReadErrorMessageAsync(response, "The sector coloring could not be saved.");
+    }
+
+    private async Task ColorUncontestedSectorAsync(string zoneName)
+    {
+        _actionErrorMessage = string.Empty;
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/sector/color", new ZoneColoringAppDto
+        {
+            ZoneName = zoneName
+        });
+        if (response.IsSuccessStatusCode)
+        {
+            await RefreshGameStateAsync();
+            return;
+        }
+
+        _actionErrorMessage = await ReadErrorMessageAsync(response, "The sector could not be colored.");
     }
 
     private async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, string fallback)
@@ -1435,7 +1583,10 @@
     private async Task AddArmyAsync()
     {
         _actionErrorMessage = string.Empty;
-        if (!CanManageArmies || _stateApp == null || _gameDataApp == null) return;
+        if (!CanManageArmies || _stateApp == null || _gameDataApp == null)
+        {
+            return;
+        }
         var zone = _stateApp.Zones.FirstOrDefault(candidate => candidate.Name == _newUnitZoneName);
         if (zone == null)
         {
@@ -1473,7 +1624,10 @@
     private async Task DeleteArmyAsync(UnitAppDto unitApp)
     {
         _actionErrorMessage = string.Empty;
-        if (!CanManageArmies || _gameDataApp == null || unitApp.FactionName != _gameDataApp.MyFactionName) return;
+        if (!CanManageArmies || _gameDataApp == null || unitApp.FactionName != _gameDataApp.MyFactionName)
+        {
+            return;
+        }
         var response = await Http.DeleteAsync($"api/Campaign/{Id}/units/{unitApp.Id}");
         if (!response.IsSuccessStatusCode)
         {
@@ -1490,6 +1644,37 @@
         public double Y { get; set; }
     }
 
+    public class UnitPositionMapping
+    {
+        public string UnitId { get; set; } = string.Empty;
+        public double X { get; set; }
+        public double Y { get; set; }
+    }
+
+    private async Task ReflowUnitLayoutAsync()
+    {
+        if (!_mapRendered || _stateApp == null || _draggingUnitApp != null)
+        {
+            return;
+        }
+        var positions = await JS.InvokeAsync<List<UnitPositionMapping>>("mapTools.layoutUnitsInZones", _stateApp.Units);
+        var byId = _stateApp.Units.ToDictionary(unit => unit.Id);
+        foreach (var position in positions)
+        {
+            if (!byId.TryGetValue(position.UnitId, out var unit))
+            {
+                continue;
+            }
+            unit.X = position.X;
+            unit.Y = position.Y;
+            if (_trialManeuvers.TryGetValue(unit.Id, out var maneuver))
+            {
+                maneuver.TargetX = position.X;
+                maneuver.TargetY = position.Y;
+            }
+        }
+    }
+
     private void GenerateBlankTemplate()
     {
         _originalExcelBytes = null;
@@ -1498,21 +1683,30 @@
 
     private void AddExcelRow()
     {
-        if (_activeExcelGrid == null) return;
+        if (_activeExcelGrid == null)
+        {
+            return;
+        }
         var colCount = _activeExcelGrid.FirstOrDefault()?.Count ?? 1;
         _activeExcelGrid.Add(Enumerable.Repeat(string.Empty, Math.Max(1, colCount)).ToList());
     }
 
     private void AddExcelColumn()
     {
-        if (_activeExcelGrid == null) return;
+        if (_activeExcelGrid == null)
+        {
+            return;
+        }
         if (!_activeExcelGrid.Any())
         {
             _activeExcelGrid.Add(new List<string> { string.Empty });
             return;
         }
 
-        foreach (var row in _activeExcelGrid) row.Add(string.Empty);
+        foreach (var row in _activeExcelGrid)
+        {
+            row.Add(string.Empty);
+        }
     }
 
     private async Task SaveExcelData()
@@ -1588,6 +1782,7 @@
         {
             await LoadGameDataAsync();
             await PaintZoneOwnershipAsync();
+            await ReflowUnitLayoutAsync();
             await RecalculateBattleAvailability();
             StateHasChanged();
         }
@@ -1599,7 +1794,10 @@
 
     private async Task PaintZoneOwnershipAsync()
     {
-        if (!_mapRendered || _stateApp?.Zones == null) return;
+        if (!_mapRendered || _stateApp?.Zones == null)
+        {
+            return;
+        }
 
         await JS.InvokeVoidAsync("mapTools.resetMap");
 
@@ -1607,7 +1805,9 @@
         {
             var factionColor = GetFactionColor(zone.FactionName);
             if (!string.IsNullOrEmpty(factionColor))
+            {
                 await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, factionColor);
+            }
         }
 
         await JS.InvokeVoidAsync("mapTools.buildZoneLookup", _stateApp.Zones);
@@ -1618,7 +1818,9 @@
         if (_hubConnection is not null)
         {
             if (_hubConnection.State == HubConnectionState.Connected)
+            {
                 await _hubConnection.SendAsync("LeaveCampaignGroup", Id);
+            }
             await _hubConnection.DisposeAsync();
         }
     }

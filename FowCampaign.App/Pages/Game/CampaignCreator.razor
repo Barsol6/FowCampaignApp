@@ -113,7 +113,13 @@
                     {
                         <span style="font-size:0.8rem;">Select Unit Type above ↑</span>
                         <button
-                            @onclick="() => { if(_deployedUnits.Any()) _deployedUnits.RemoveAt(_deployedUnits.Count - 1); }"
+                            @onclick="() =>
+                            {
+                                if (_deployedUnits.Any())
+                                {
+                                    _deployedUnits.RemoveAt(_deployedUnits.Count - 1);
+                                }
+                            }"
                             style="margin-left:auto; color:red;">
                             UNDO
                         </button>
@@ -128,8 +134,9 @@
                 <div class="campaign-map-viewport">
                     <div class="canvas-wrapper campaign-map-surface campaign-map-zoom-@_mapZoom"
                          @onclick="HandleCanvasClick"
+                         @onmousedown="HandleCanvasMouseDown"
                          @onmousemove="HandleWrapperMouseMove"
-                         @onmouseleave="() => _hoveredRegion = null"
+                         @onmouseleave="HandleCreatorMouseLeave"
                          @onmouseup="HandleWrapperMouseUp">
                         <canvas id="mapCanvas" class="campaign-map-canvas"></canvas>
                         @if (_hoveredRegion != null)
@@ -284,6 +291,8 @@
     private readonly List<UnitDefinitionAppDto> _unitDefinitions = new();
     private readonly List<UnitAppDto> _deployedUnits = new();
     private UnitAppDto _draggingUnitApp;
+    private double _dragStartX;
+    private double _dragStartY;
 
 
     private string _unitName = string.Empty;
@@ -298,10 +307,12 @@
     private string _factionName = string.Empty;
     private string _factionColor = "#000000";
     private bool _shouldRenderMap;
+    private bool _mapInitialized;
     private bool _isSectorNameModalOpen;
     private double _pendingSectorVisualX;
     private double _pendingSectorVisualY;
     private int _mapZoom = 100;
+    private int _layoutZoom = -1;
     private HoveredRegion? _hoveredRegion;
 
     public class MapDimensions
@@ -312,8 +323,6 @@
 
     private double _mapRealWidth = 1;
     private double _mapRealHeight = 1;
-    private double _displayScaleFactorX = 1.0;
-    private double _displayScaleFactorY = 1.0;
 
 
     private List<string> MissingRequirements
@@ -321,11 +330,26 @@
         get
         {
             var list = new List<string>();
-            if (string.IsNullOrWhiteSpace(_model.Name)) list.Add("Operation Codename is missing.");
-            if (string.IsNullOrWhiteSpace(_model.Rules)) list.Add("Campaign rules are required.");
-            if (!_hasMap) list.Add("Tactical Map must be uploaded.");
-            if (_model.Factions.Count < 2) list.Add($"At least 2 Factions required (Current: {_model.Factions.Count}).");
-            if (_myFactionApp == null) list.Add("Select your Faction to COMMAND (Checkbox).");
+            if (string.IsNullOrWhiteSpace(_model.Name))
+            {
+                list.Add("Operation Codename is missing.");
+            }
+            if (string.IsNullOrWhiteSpace(_model.Rules))
+            {
+                list.Add("Campaign rules are required.");
+            }
+            if (!_hasMap)
+            {
+                list.Add("Tactical Map must be uploaded.");
+            }
+            if (_model.Factions.Count < 2)
+            {
+                list.Add($"At least 2 Factions required (Current: {_model.Factions.Count}).");
+            }
+            if (_myFactionApp == null)
+            {
+                list.Add("Select your Faction to COMMAND (Checkbox).");
+            }
             return list;
         }
     }
@@ -338,17 +362,22 @@
             var realDims = await JsRuntime.InvokeAsync<MapDimensions>("mapTools.initMap", "mapCanvas", _imageDataUrl);
             if (realDims.Width > 0 && realDims.Height > 0)
             {
+                _mapInitialized = true;
                 _mapRealWidth = realDims.Width;
                 _mapRealHeight = realDims.Height;
-                var visualDims = await JsRuntime.InvokeAsync<MapDimensions>("mapTools.getClientDimensions", "mapCanvas");
-                if (visualDims.Width > 0 && visualDims.Height > 0)
-                {
-                    _displayScaleFactorX = visualDims.Width / _mapRealWidth;
-                    _displayScaleFactorY = visualDims.Height / _mapRealHeight;
-                }
                 if (_recordedZones.Count > 0)
+                {
                     await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
+                }
+                await ReflowDeployedUnitsAsync();
+                _layoutZoom = _mapZoom;
             }
+        }
+        else if (_mapInitialized && _layoutZoom != _mapZoom && _draggingUnitApp == null)
+        {
+            await ReflowDeployedUnitsAsync();
+            _layoutZoom = _mapZoom;
+            StateHasChanged();
         }
     }
 
@@ -378,9 +407,12 @@
         _shouldRenderMap = true;
     }
 
-    private async Task HandleCanvasClick(MouseEventArgs e)
+    private void HandleCanvasClick(MouseEventArgs e)
     {
-        if (_selectedFactionApp == null) return;
+        if (_selectedFactionApp == null)
+        {
+            return;
+        }
 
         if (_currentTool == "PAINT")
         {
@@ -388,33 +420,45 @@
             _pendingSectorVisualY = e.OffsetY;
             _pendingSectorName = string.Empty;
             _isSectorNameModalOpen = true;
+        }
+    }
+
+    private async Task HandleCanvasMouseDown(MouseEventArgs e)
+    {
+        if (e.Button != 0 || _currentTool != "DEPLOY" || _selectedFactionApp == null ||
+            string.IsNullOrWhiteSpace(_selectedDefinitionId))
+        {
             return;
         }
-        else if (_currentTool == "DEPLOY")
+        var coordinates = await JsRuntime.InvokeAsync<PaintCoord>("mapTools.getCanvasCoordinates", e.OffsetX, e.OffsetY);
+        var zoneName = await JsRuntime.InvokeAsync<string>("mapTools.getZoneNameAt", coordinates.X, coordinates.Y);
+        if (string.IsNullOrWhiteSpace(zoneName))
         {
-            if (string.IsNullOrEmpty(_selectedDefinitionId) && _draggingUnitApp != null) return;
-
-    
-            var realCoords  = await JsRuntime.InvokeAsync<PaintCoord>(
-                "mapTools.getCanvasCoordinates",
-                e.OffsetX,
-                e.OffsetY
-            );
-
-            Console.WriteLine($"Deploy Click at Canvas Coords: ({e.OffsetX}, {e.OffsetY}) => Real Coords: ({realCoords.X}, {realCoords.Y})");
-            _deployedUnits.Add(new UnitAppDto
-            {
-                DefinitionId = _selectedDefinitionId,
-                FactionName = _selectedFactionApp.Name,
-                X = realCoords.X,
-                Y = realCoords.Y
-            });
+            return;
         }
+
+        var snapped = await JsRuntime.InvokeAsync<PaintCoord?>("mapTools.snapUnitToZone",
+            zoneName, coordinates.X, coordinates.Y, _deployedUnits, (string?)null, 1);
+        if (snapped == null)
+        {
+            return;
+        }
+        _deployedUnits.Add(new UnitAppDto
+        {
+            DefinitionId = _selectedDefinitionId,
+            FactionName = _selectedFactionApp.Name,
+            X = snapped.X,
+            Y = snapped.Y,
+            CurrentZoneName = zoneName
+        });
     }
 
     private async Task ConfirmSectorNaming()
     {
-        if (_selectedFactionApp == null || string.IsNullOrWhiteSpace(_pendingSectorName)) return;
+        if (_selectedFactionApp == null || string.IsNullOrWhiteSpace(_pendingSectorName))
+        {
+            return;
+        }
 
         var realCoords = await JsRuntime.InvokeAsync<PaintCoord>(
             "mapTools.floodFill",
@@ -447,6 +491,7 @@
                 });
             }
             await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
+            await ReflowDeployedUnitsAsync();
         }
 
         CancelSectorNaming();
@@ -465,11 +510,15 @@
         _paintHistory.Clear();
         _hoveredRegion = null;
         await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
+        await ReflowDeployedUnitsAsync();
     }
 
     private async Task UndoPaint()
     {
-        if (_paintHistory.Count == 0) return;
+        if (_paintHistory.Count == 0)
+        {
+            return;
+        }
         var previousZones = _paintHistory.Pop();
         _recordedZones.Clear();
         _recordedZones.AddRange(previousZones);
@@ -482,8 +531,14 @@
         _deployedUnits.RemoveAll(unit => unit.FactionName == faction.Name);
         _recordedZones.RemoveAll(zone => zone.FactionName == faction.Name);
         _paintHistory.Clear();
-        if (_selectedFactionApp == faction) _selectedFactionApp = _model.Factions.FirstOrDefault();
-        if (_myFactionApp == faction) _myFactionApp = null;
+        if (_selectedFactionApp == faction)
+        {
+            _selectedFactionApp = _model.Factions.FirstOrDefault();
+        }
+        if (_myFactionApp == faction)
+        {
+            _myFactionApp = null;
+        }
         await RedrawPaintedZonesAsync();
     }
 
@@ -494,9 +549,38 @@
         {
             var color = _model.Factions.FirstOrDefault(faction => faction.Name == zone.FactionName)?.Color;
             if (color != null)
+            {
                 await JsRuntime.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, color);
+            }
         }
         await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
+        await ReflowDeployedUnitsAsync();
+    }
+
+    private async Task ReflowDeployedUnitsAsync()
+    {
+        if (!_mapInitialized || _draggingUnitApp != null || _deployedUnits.Count == 0)
+        {
+            return;
+        }
+        var positions = await JsRuntime.InvokeAsync<List<UnitPositionMapping>>("mapTools.layoutUnitsInZones", _deployedUnits);
+        var unitsById = _deployedUnits.ToDictionary(unit => unit.Id);
+        foreach (var position in positions)
+        {
+            if (!unitsById.TryGetValue(position.UnitId, out var unit))
+            {
+                continue;
+            }
+            unit.X = position.X;
+            unit.Y = position.Y;
+        }
+    }
+
+    public class UnitPositionMapping
+    {
+        public string UnitId { get; set; } = string.Empty;
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 
     private Task RefreshZoneLookupNamesAsync() =>
@@ -527,15 +611,20 @@
 
     private async Task SaveCampaign()
     {
-        if (MissingRequirements.Any()) return;
-
-        var unitZoneMappings = await JsRuntime.InvokeAsync<List<UnitZoneMapping>>(
-            "mapTools.assignUnitsToZones", _deployedUnits, _recordedZones);
-        foreach (var mapping in unitZoneMappings)
+        if (MissingRequirements.Any())
         {
-            if (mapping.ZoneId < 0 || mapping.ZoneId >= _recordedZones.Count) continue;
-            var unit = _deployedUnits.FirstOrDefault(candidate => candidate.Id == mapping.UnitId);
-            if (unit != null) unit.CurrentZoneName = _recordedZones[mapping.ZoneId].Name;
+            return;
+        }
+
+        foreach (var unit in _deployedUnits)
+        {
+            unit.CurrentZoneName = await JsRuntime.InvokeAsync<string>("mapTools.getZoneNameAt", unit.X, unit.Y);
+            if (!string.IsNullOrWhiteSpace(unit.CurrentZoneName))
+            {
+                continue;
+            }
+            _errorMessage = "Every army must be inside a painted sector before deployment.";
+            return;
         }
 
         var zoneCoordinates = _recordedZones.Select(z => new { name = z.Name, x = z.X, y = z.Y }).ToList();
@@ -603,6 +692,8 @@
         if (_currentTool == "DEPLOY")
         {
             _draggingUnitApp = unitApp;
+            _dragStartX = unitApp.X;
+            _dragStartY = unitApp.Y;
         }
     }
 
@@ -611,19 +702,53 @@
         if (_draggingUnitApp != null)
         {
             _hoveredRegion = null;
-            if (_displayScaleFactorX > 0 && _displayScaleFactorY > 0)
-            {
-                _draggingUnitApp.X = e.OffsetX / _displayScaleFactorX;
-                _draggingUnitApp.Y = e.OffsetY / _displayScaleFactorY;
-            }
+            var coordinates = await JsRuntime.InvokeAsync<PaintCoord>("mapTools.getCanvasCoordinates", e.OffsetX, e.OffsetY);
+            _draggingUnitApp.X = coordinates.X;
+            _draggingUnitApp.Y = coordinates.Y;
             return;
         }
 
         _hoveredRegion = await JsRuntime.InvokeAsync<HoveredRegion?>("mapTools.getHoveredZone", e.ClientX, e.ClientY);
     }
 
-    private void HandleWrapperMouseUp(MouseEventArgs e)
+    private async Task HandleWrapperMouseUp(MouseEventArgs e)
     {
+        if (_draggingUnitApp == null)
+        {
+            return;
+        }
+        var unit = _draggingUnitApp;
+        _draggingUnitApp = null;
+        var zoneName = await JsRuntime.InvokeAsync<string>("mapTools.getZoneNameAt", unit.X, unit.Y);
+        if (string.IsNullOrWhiteSpace(zoneName))
+        {
+            unit.X = _dragStartX;
+            unit.Y = _dragStartY;
+            return;
+        }
+
+        var snapped = await JsRuntime.InvokeAsync<PaintCoord?>("mapTools.snapUnitToZone",
+            zoneName, unit.X, unit.Y, _deployedUnits, unit.Id, unit.Scale);
+        if (snapped == null)
+        {
+            unit.X = _dragStartX;
+            unit.Y = _dragStartY;
+            return;
+        }
+        unit.X = snapped.X;
+        unit.Y = snapped.Y;
+        unit.CurrentZoneName = zoneName;
+    }
+
+    private void HandleCreatorMouseLeave()
+    {
+        _hoveredRegion = null;
+        if (_draggingUnitApp == null)
+        {
+            return;
+        }
+        _draggingUnitApp.X = _dragStartX;
+        _draggingUnitApp.Y = _dragStartY;
         _draggingUnitApp = null;
     }
 
@@ -651,12 +776,6 @@
         public string Name { get; set; } = string.Empty;
         public double X { get; set; }
         public double Y { get; set; }
-    }
-
-    public class UnitZoneMapping
-    {
-        public string UnitId { get; set; } = string.Empty;
-        public int ZoneId { get; set; }
     }
 
     private async Task AddFaction()

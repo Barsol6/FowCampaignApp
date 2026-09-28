@@ -1,10 +1,15 @@
 ﻿const soundIn = new Audio("/assets/sounds/paper-slide-in.mp3");
 
-export function dropIn(el) {
-    if (!el) return;
+export function dropIn(el)
+{
+    if (!el)
+    {
+        return;
+    }
 
     soundIn.currentTime = 0;
-    soundIn.play().catch(() => {
+    soundIn.play().catch(() =>
+    {
     });
 
     gsap.fromTo(el,
@@ -13,15 +18,19 @@ export function dropIn(el) {
     );
 }
 
-export function tossOut(el) {
-    return new Promise(resolve => {
-        if (!el) {
+export function tossOut(el)
+{
+    return new Promise(resolve =>
+    {
+        if (!el)
+        {
             resolve();
             return;
         }
 
         soundIn.currentTime = 0;
-        soundIn.play().catch(() => {
+        soundIn.play().catch(() =>
+        {
         });
 
         gsap.to(el, {

@@ -12,7 +12,9 @@ public class GameHub(FowCampaignContext context) : Hub
     {
         var username = Context.User?.Identity?.Name;
         if (string.IsNullOrWhiteSpace(username))
+        {
             throw new HubException("Authentication is required.");
+        }
 
         var factionName = await context.Campaigns
             .Where(campaign => campaign.Id == campaignId)
@@ -22,7 +24,9 @@ public class GameHub(FowCampaignContext context) : Hub
             .FirstOrDefaultAsync();
 
         if (string.IsNullOrWhiteSpace(factionName))
+        {
             throw new HubException("You are not a member of this campaign.");
+        }
 
         await Groups.AddToGroupAsync(Context.ConnectionId, CampaignGroupName(campaignId));
         await Groups.AddToGroupAsync(Context.ConnectionId, FactionGroupName(campaignId, factionName));

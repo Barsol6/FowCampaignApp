@@ -16,13 +16,20 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
+        if (!firstRender)
+        {
+            return;
+        }
 
         if (_module == null)
+        {
             _module = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/paper-transition.js");
+        }
 
         if (_paperRef.Context != null)
+        {
             await _module.InvokeVoidAsync("dropIn", _paperRef);
+        }
     }
 
     public async Task TossAndNavigate(string url)
