@@ -25,12 +25,18 @@ public class SignUp
 
     public async Task<SignUpResult> CreateAccount(string username, string password, string repeatpassword, string role)
     {
-        if (password != repeatpassword) return SignUpResult.PasswordsDontMatch;
+        if (password != repeatpassword)
+        {
+            return SignUpResult.PasswordsDontMatch;
+        }
+
         var hashedPassword = PasswordHash.HashPasswords(password, username);
 
         var exists = await UserRepository.CheckIfExistsAsync(username);
-        if (exists is true) return SignUpResult.AccountExists;
-
+        if (exists is true)
+        {
+            return SignUpResult.AccountExists;
+        }
 
         var user = new User
         {

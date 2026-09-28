@@ -120,7 +120,7 @@
                     </div>
 
                     <button class="logButton" style="background:#8b0000; font-size: 0.8rem; padding: 5px;"
-                            @onclick="() => { _joinStep = 1; }">
+                            @onclick="ResetJoinStep">
                         &lt; BACK
                     </button>
                 }
@@ -201,9 +201,17 @@
         _joinError = "";
     }
 
+    private void ResetJoinStep()
+    {
+        _joinStep = 1;
+    }
+
     private async Task LookupCampaign()
     {
-        if (string.IsNullOrWhiteSpace(_joinCode)) return;
+        if (string.IsNullOrWhiteSpace(_joinCode))
+        {
+            return;
+        }
         _joinError = "";
         var response = await Http.GetAsync($"api/Campaign/lookup/{_joinCode}");
         if (response.IsSuccessStatusCode)

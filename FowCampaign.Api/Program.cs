@@ -36,7 +36,10 @@ builder.Services.AddDbContext<FowCampaignContext>(options =>
 builder.Services.AddControllers();
 var allowedClient = builder.Configuration["AllowedClient"];
 
-if (string.IsNullOrEmpty(allowedClient)) throw new Exception("AllowedClient not set in appsettings.json");
+if (string.IsNullOrEmpty(allowedClient))
+{
+    throw new Exception("AllowedClient not set in appsettings.json");
+}
 
 builder.Services.AddCors(options =>
 {

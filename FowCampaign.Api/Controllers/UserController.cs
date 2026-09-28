@@ -26,12 +26,20 @@ public class UserController(
         // validation is currently disabled as it is unnecessary now
         /*var validationResult = await validator.ValidateAsync(user);
 
-        if (!validationResult.IsValid) return BadRequest(validationResult.Errors);*/
+        if (!validationResult.IsValid)
+        {
+            return BadRequest(validationResult.Errors);
+        }*/
 
-        if (!ModelState.IsValid) return BadRequest(ModelState);
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
 
         if (await userRepository.CheckIfExistsAsync(user.Username))
+        {
             return Conflict(new { message = "CODENAME ALREADY TAKEN" });
+        }
 
         var hashedPassword = passwordHash.HashPasswords(user.Password, user.Username);
 
@@ -44,22 +52,29 @@ public class UserController(
         await userRepository.AddUserAsync(newUser);
 
         return Ok(new { message = "Account created" });
-        ;
     }
 
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginApiDto user)
     {
-        if (!ModelState.IsValid) return BadRequest(ModelState);
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
 
         var existingUser = await userRepository.GetUserAsync(user.Username);
 
         if (existingUser is null)
+        {
             return NotFound(new { message = "Account does not exist" });
+        }
 
         var passwordCheck = passwordHash.CheckPassword(user.Password, user.Username);
 
-        if (passwordCheck.Result is false) return Unauthorized(new { message = "Invalid password" });
+        if (passwordCheck.Result is false)
+        {
+            return Unauthorized(new { message = "Invalid password" });
+        }
 
         var token = GenerateJwtToken(user.Username);
 
@@ -94,7 +109,10 @@ public class UserController(
     public async Task<IActionResult> GetMe()
     {
         var username = User.Identity?.Name;
-        if (username is null) return Unauthorized();
+        if (username is null)
+        {
+            return Unauthorized();
+        }
 
         return Ok(new { username, isAuthenticated = true });
     }

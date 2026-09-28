@@ -58,6 +58,11 @@
         {
             <div style="color:red; text-align:center; font-weight:bold; margin-bottom: 10px;">@_errorMessage</div>
         }
+
+        <div class="campaign-rules-editor">
+            <label for="campaign-rules">CAMPAIGN RULES <span>(Markdown and HTML)</span></label>
+            <textarea id="campaign-rules" class="tactical-input" @bind="_model.Rules" @bind:event="oninput" rows="8" placeholder="Write the rules for this campaign..."></textarea>
+        </div>
     </div>
 
     @if (_hasMap)
@@ -74,18 +79,6 @@
                     <InputFile OnChange="@HandleIconUnitUpload" style="display: none;" accept="image/*"/>
                 </label>
 
-                <div style="display: flex; flex-direction: column; gap: 5px;">
-                    <label class="logButton"
-                           style="font-size: 0.7rem; padding: 5px; background-color: #2e7d32; color: white;">
-                        ATTACH EXCEL
-                        <InputFile OnChange="@HandleFileUpload" style="display: none;" accept=".xlsx"/>
-                    </label>
-                    @if (!string.IsNullOrEmpty(_pendingExcelName))
-                    {
-                        <span
-                            style="font-size: 0.7rem; color: #2e7d32; font-weight: bold;">Attached: @_pendingExcelName</span>
-                    }
-                </div>
                 @foreach (var def in _unitDefinitions)
                 {
                     <div @onclick="() => _selectedDefinitionId = def.Id"
@@ -111,11 +104,22 @@
                         DEPLOY
                     </button>
 
+                    @if (_currentTool == "PAINT")
+                    {
+                        <button @onclick="UndoPaint" disabled="@(_paintHistory.Count == 0)" style="margin-left:auto; color:#8b0000;">UNDO PAINT</button>
+                    }
+
                     @if (_currentTool == "DEPLOY")
                     {
                         <span style="font-size:0.8rem;">Select Unit Type above ↑</span>
                         <button
-                            @onclick="() => { if(_deployedUnits.Any()) _deployedUnits.RemoveAt(_deployedUnits.Count - 1); }"
+                            @onclick="() =>
+                            {
+                                if (_deployedUnits.Any())
+                                {
+                                    _deployedUnits.RemoveAt(_deployedUnits.Count - 1);
+                                }
+                            }"
                             style="margin-left:auto; color:red;">
                             UNDO
                         </button>
@@ -130,9 +134,15 @@
                 <div class="campaign-map-viewport">
                     <div class="canvas-wrapper campaign-map-surface campaign-map-zoom-@_mapZoom"
                          @onclick="HandleCanvasClick"
+                         @onmousedown="HandleCanvasMouseDown"
                          @onmousemove="HandleWrapperMouseMove"
+                         @onmouseleave="HandleCreatorMouseLeave"
                          @onmouseup="HandleWrapperMouseUp">
                         <canvas id="mapCanvas" class="campaign-map-canvas"></canvas>
+                        @if (_hoveredRegion != null)
+                        {
+                            <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(System.Globalization.CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name</div>
+                        }
                         @foreach (var unit in _deployedUnits)
                         {
                             var factionColor = _model.Factions.FirstOrDefault(f => f.Name == unit.FactionName)?.Color ?? "#000";
@@ -199,11 +209,7 @@
                                   font-family: 'Black Ops One'; font-size: 1.1rem; width: 100%; color: #333;"/>
 
                                 <button class="btn-card-delete"
-                                        @onclick="() => { 
-                                        _model.Factions.Remove(faction);
-                                        _deployedUnits.RemoveAll(u => u.FactionName == faction.Name);
-                                        _recordedZones.RemoveAll(z => z.FactionName == faction.Name);
-                                    }" title="Scrap Faction">
+                                        @onclick="() => RemoveFaction(faction)" title="Scrap Faction">
                                     &times;
                                 </button>
                             </div>
@@ -240,6 +246,7 @@
                             <tr class="intel-row">
                                 <td>
                                     <input @bind="zone.Name"
+                                           @bind:after="RefreshZoneLookupNamesAsync"
                                            aria-label="Sector name"
                                            class="campaign-sector-name-input"/>
                                 </td>
@@ -280,9 +287,12 @@
     private FactionAppDto _selectedFactionApp;
     private FactionAppDto _myFactionApp;
     private readonly List<ZoneSeedAppDto> _recordedZones = new();
+    private readonly Stack<List<ZoneSeedAppDto>> _paintHistory = new();
     private readonly List<UnitDefinitionAppDto> _unitDefinitions = new();
     private readonly List<UnitAppDto> _deployedUnits = new();
     private UnitAppDto _draggingUnitApp;
+    private double _dragStartX;
+    private double _dragStartY;
 
 
     private string _unitName = string.Empty;
@@ -296,13 +306,14 @@
     private string _pendingSectorName = string.Empty;
     private string _factionName = string.Empty;
     private string _factionColor = "#000000";
-    private string _pendingExcelBase64 = string.Empty;
-    private string _pendingExcelName = string.Empty;
     private bool _shouldRenderMap;
+    private bool _mapInitialized;
     private bool _isSectorNameModalOpen;
     private double _pendingSectorVisualX;
     private double _pendingSectorVisualY;
     private int _mapZoom = 100;
+    private int _layoutZoom = -1;
+    private HoveredRegion? _hoveredRegion;
 
     public class MapDimensions
     {
@@ -312,8 +323,6 @@
 
     private double _mapRealWidth = 1;
     private double _mapRealHeight = 1;
-    private double _displayScaleFactorX = 1.0;
-    private double _displayScaleFactorY = 1.0;
 
 
     private List<string> MissingRequirements
@@ -321,10 +330,26 @@
         get
         {
             var list = new List<string>();
-            if (string.IsNullOrWhiteSpace(_model.Name)) list.Add("Operation Codename is missing.");
-            if (!_hasMap) list.Add("Tactical Map must be uploaded.");
-            if (_model.Factions.Count < 2) list.Add($"At least 2 Factions required (Current: {_model.Factions.Count}).");
-            if (_myFactionApp == null) list.Add("Select your Faction to COMMAND (Checkbox).");
+            if (string.IsNullOrWhiteSpace(_model.Name))
+            {
+                list.Add("Operation Codename is missing.");
+            }
+            if (string.IsNullOrWhiteSpace(_model.Rules))
+            {
+                list.Add("Campaign rules are required.");
+            }
+            if (!_hasMap)
+            {
+                list.Add("Tactical Map must be uploaded.");
+            }
+            if (_model.Factions.Count < 2)
+            {
+                list.Add($"At least 2 Factions required (Current: {_model.Factions.Count}).");
+            }
+            if (_myFactionApp == null)
+            {
+                list.Add("Select your Faction to COMMAND (Checkbox).");
+            }
             return list;
         }
     }
@@ -337,15 +362,22 @@
             var realDims = await JsRuntime.InvokeAsync<MapDimensions>("mapTools.initMap", "mapCanvas", _imageDataUrl);
             if (realDims.Width > 0 && realDims.Height > 0)
             {
+                _mapInitialized = true;
                 _mapRealWidth = realDims.Width;
                 _mapRealHeight = realDims.Height;
-                var visualDims = await JsRuntime.InvokeAsync<MapDimensions>("mapTools.getClientDimensions", "mapCanvas");
-                if (visualDims.Width > 0 && visualDims.Height > 0)
+                if (_recordedZones.Count > 0)
                 {
-                    _displayScaleFactorX = visualDims.Width / _mapRealWidth;
-                    _displayScaleFactorY = visualDims.Height / _mapRealHeight;
+                    await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
                 }
+                await ReflowDeployedUnitsAsync();
+                _layoutZoom = _mapZoom;
             }
+        }
+        else if (_mapInitialized && _layoutZoom != _mapZoom && _draggingUnitApp == null)
+        {
+            await ReflowDeployedUnitsAsync();
+            _layoutZoom = _mapZoom;
+            StateHasChanged();
         }
     }
 
@@ -375,9 +407,12 @@
         _shouldRenderMap = true;
     }
 
-    private async Task HandleCanvasClick(MouseEventArgs e)
+    private void HandleCanvasClick(MouseEventArgs e)
     {
-        if (_selectedFactionApp == null) return;
+        if (_selectedFactionApp == null)
+        {
+            return;
+        }
 
         if (_currentTool == "PAINT")
         {
@@ -385,38 +420,45 @@
             _pendingSectorVisualY = e.OffsetY;
             _pendingSectorName = string.Empty;
             _isSectorNameModalOpen = true;
+        }
+    }
+
+    private async Task HandleCanvasMouseDown(MouseEventArgs e)
+    {
+        if (e.Button != 0 || _currentTool != "DEPLOY" || _selectedFactionApp == null ||
+            string.IsNullOrWhiteSpace(_selectedDefinitionId))
+        {
             return;
         }
-        else if (_currentTool == "DEPLOY")
+        var coordinates = await JsRuntime.InvokeAsync<PaintCoord>("mapTools.getCanvasCoordinates", e.OffsetX, e.OffsetY);
+        var zoneName = await JsRuntime.InvokeAsync<string>("mapTools.getZoneNameAt", coordinates.X, coordinates.Y);
+        if (string.IsNullOrWhiteSpace(zoneName))
         {
-            if (string.IsNullOrEmpty(_selectedDefinitionId) && _draggingUnitApp != null) return;
-
-    
-            var realCoords  = await JsRuntime.InvokeAsync<PaintCoord>(
-                "mapTools.getCanvasCoordinates",
-                e.OffsetX,
-                e.OffsetY
-            );
-
-            Console.WriteLine($"Deploy Click at Canvas Coords: ({e.OffsetX}, {e.OffsetY}) => Real Coords: ({realCoords.X}, {realCoords.Y})");
-            _deployedUnits.Add(new UnitAppDto
-            {
-                DefinitionId = _selectedDefinitionId,
-                FactionName = _selectedFactionApp.Name,
-                X = realCoords.X,
-                Y = realCoords.Y,
-                ExcelFileName = _pendingExcelName,
-                ExcelDatabase64 = _pendingExcelBase64
-            });
-
-            _pendingExcelBase64 = "";
-            _pendingExcelName = "";
+            return;
         }
+
+        var snapped = await JsRuntime.InvokeAsync<PaintCoord?>("mapTools.snapUnitToZone",
+            zoneName, coordinates.X, coordinates.Y, _deployedUnits, (string?)null, 1);
+        if (snapped == null)
+        {
+            return;
+        }
+        _deployedUnits.Add(new UnitAppDto
+        {
+            DefinitionId = _selectedDefinitionId,
+            FactionName = _selectedFactionApp.Name,
+            X = snapped.X,
+            Y = snapped.Y,
+            CurrentZoneName = zoneName
+        });
     }
 
     private async Task ConfirmSectorNaming()
     {
-        if (_selectedFactionApp == null || string.IsNullOrWhiteSpace(_pendingSectorName)) return;
+        if (_selectedFactionApp == null || string.IsNullOrWhiteSpace(_pendingSectorName))
+        {
+            return;
+        }
 
         var realCoords = await JsRuntime.InvokeAsync<PaintCoord>(
             "mapTools.floodFill",
@@ -427,6 +469,7 @@
 
         if (realCoords != null)
         {
+            _paintHistory.Push(_recordedZones.Select(CloneZone).ToList());
             var nearbyExistingZone = _recordedZones
                 .FirstOrDefault(z => Math.Sqrt(Math.Pow(z.X - realCoords.X, 2) + Math.Pow(z.Y - realCoords.Y, 2)) < 5);
 
@@ -447,6 +490,8 @@
                     Name = _pendingSectorName.Trim()
                 });
             }
+            await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
+            await ReflowDeployedUnitsAsync();
         }
 
         CancelSectorNaming();
@@ -461,7 +506,93 @@
     private async Task ResetMap()
     {
         await JsRuntime.InvokeVoidAsync("mapTools.resetMap");
+        _recordedZones.Clear();
+        _paintHistory.Clear();
+        _hoveredRegion = null;
+        await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
+        await ReflowDeployedUnitsAsync();
     }
+
+    private async Task UndoPaint()
+    {
+        if (_paintHistory.Count == 0)
+        {
+            return;
+        }
+        var previousZones = _paintHistory.Pop();
+        _recordedZones.Clear();
+        _recordedZones.AddRange(previousZones);
+        await RedrawPaintedZonesAsync();
+    }
+
+    private async Task RemoveFaction(FactionAppDto faction)
+    {
+        _model.Factions.Remove(faction);
+        _deployedUnits.RemoveAll(unit => unit.FactionName == faction.Name);
+        _recordedZones.RemoveAll(zone => zone.FactionName == faction.Name);
+        _paintHistory.Clear();
+        if (_selectedFactionApp == faction)
+        {
+            _selectedFactionApp = _model.Factions.FirstOrDefault();
+        }
+        if (_myFactionApp == faction)
+        {
+            _myFactionApp = null;
+        }
+        await RedrawPaintedZonesAsync();
+    }
+
+    private async Task RedrawPaintedZonesAsync()
+    {
+        await JsRuntime.InvokeVoidAsync("mapTools.resetMap");
+        foreach (var zone in _recordedZones)
+        {
+            var color = _model.Factions.FirstOrDefault(faction => faction.Name == zone.FactionName)?.Color;
+            if (color != null)
+            {
+                await JsRuntime.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, color);
+            }
+        }
+        await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
+        await ReflowDeployedUnitsAsync();
+    }
+
+    private async Task ReflowDeployedUnitsAsync()
+    {
+        if (!_mapInitialized || _draggingUnitApp != null || _deployedUnits.Count == 0)
+        {
+            return;
+        }
+        var positions = await JsRuntime.InvokeAsync<List<UnitPositionMapping>>("mapTools.layoutUnitsInZones", _deployedUnits);
+        var unitsById = _deployedUnits.ToDictionary(unit => unit.Id);
+        foreach (var position in positions)
+        {
+            if (!unitsById.TryGetValue(position.UnitId, out var unit))
+            {
+                continue;
+            }
+            unit.X = position.X;
+            unit.Y = position.Y;
+        }
+    }
+
+    public class UnitPositionMapping
+    {
+        public string UnitId { get; set; } = string.Empty;
+        public double X { get; set; }
+        public double Y { get; set; }
+    }
+
+    private Task RefreshZoneLookupNamesAsync() =>
+        JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones).AsTask();
+
+    private static ZoneSeedAppDto CloneZone(ZoneSeedAppDto zone) => new()
+    {
+        X = zone.X,
+        Y = zone.Y,
+        FactionName = zone.FactionName,
+        Name = zone.Name
+    };
 
     private void ZoomIn()
     {
@@ -480,15 +611,20 @@
 
     private async Task SaveCampaign()
     {
-        if (MissingRequirements.Any()) return;
-
-        var unitZoneMappings = await JsRuntime.InvokeAsync<List<UnitZoneMapping>>(
-            "mapTools.assignUnitsToZones", _deployedUnits, _recordedZones);
-        foreach (var mapping in unitZoneMappings)
+        if (MissingRequirements.Any())
         {
-            if (mapping.ZoneId < 0 || mapping.ZoneId >= _recordedZones.Count) continue;
-            var unit = _deployedUnits.FirstOrDefault(candidate => candidate.Id == mapping.UnitId);
-            if (unit != null) unit.CurrentZoneName = _recordedZones[mapping.ZoneId].Name;
+            return;
+        }
+
+        foreach (var unit in _deployedUnits)
+        {
+            unit.CurrentZoneName = await JsRuntime.InvokeAsync<string>("mapTools.getZoneNameAt", unit.X, unit.Y);
+            if (!string.IsNullOrWhiteSpace(unit.CurrentZoneName))
+            {
+                continue;
+            }
+            _errorMessage = "Every army must be inside a painted sector before deployment.";
+            return;
         }
 
         var zoneCoordinates = _recordedZones.Select(z => new { name = z.Name, x = z.X, y = z.Y }).ToList();
@@ -500,6 +636,7 @@
             Zones = _recordedZones,
             Units = _deployedUnits,
             UnitDefinitions = _unitDefinitions,
+            Rules = _model.Rules,
             TurnNumber = 1,
             AdjacencyGraph = adjacencyGraph
         };
@@ -555,23 +692,63 @@
         if (_currentTool == "DEPLOY")
         {
             _draggingUnitApp = unitApp;
+            _dragStartX = unitApp.X;
+            _dragStartY = unitApp.Y;
         }
     }
 
-    private void HandleWrapperMouseMove(MouseEventArgs e)
+    private async Task HandleWrapperMouseMove(MouseEventArgs e)
     {
         if (_draggingUnitApp != null)
         {
-            if (_displayScaleFactorX > 0 && _displayScaleFactorY > 0)
-            {
-                _draggingUnitApp.X = e.OffsetX / _displayScaleFactorX;
-                _draggingUnitApp.Y = e.OffsetY / _displayScaleFactorY;
-            }
+            _hoveredRegion = null;
+            var coordinates = await JsRuntime.InvokeAsync<PaintCoord>("mapTools.getCanvasCoordinates", e.OffsetX, e.OffsetY);
+            _draggingUnitApp.X = coordinates.X;
+            _draggingUnitApp.Y = coordinates.Y;
+            return;
         }
+
+        _hoveredRegion = await JsRuntime.InvokeAsync<HoveredRegion?>("mapTools.getHoveredZone", e.ClientX, e.ClientY);
     }
 
-    private void HandleWrapperMouseUp(MouseEventArgs e)
+    private async Task HandleWrapperMouseUp(MouseEventArgs e)
     {
+        if (_draggingUnitApp == null)
+        {
+            return;
+        }
+        var unit = _draggingUnitApp;
+        _draggingUnitApp = null;
+        var zoneName = await JsRuntime.InvokeAsync<string>("mapTools.getZoneNameAt", unit.X, unit.Y);
+        if (string.IsNullOrWhiteSpace(zoneName))
+        {
+            unit.X = _dragStartX;
+            unit.Y = _dragStartY;
+            return;
+        }
+
+        var snapped = await JsRuntime.InvokeAsync<PaintCoord?>("mapTools.snapUnitToZone",
+            zoneName, unit.X, unit.Y, _deployedUnits, unit.Id, unit.Scale);
+        if (snapped == null)
+        {
+            unit.X = _dragStartX;
+            unit.Y = _dragStartY;
+            return;
+        }
+        unit.X = snapped.X;
+        unit.Y = snapped.Y;
+        unit.CurrentZoneName = zoneName;
+    }
+
+    private void HandleCreatorMouseLeave()
+    {
+        _hoveredRegion = null;
+        if (_draggingUnitApp == null)
+        {
+            return;
+        }
+        _draggingUnitApp.X = _dragStartX;
+        _draggingUnitApp.Y = _dragStartY;
         _draggingUnitApp = null;
     }
 
@@ -594,10 +771,11 @@
         public double Y { get; set; }
     }
 
-    public class UnitZoneMapping
+    public class HoveredRegion
     {
-        public string UnitId { get; set; } = string.Empty;
-        public int ZoneId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 
     private async Task AddFaction()
@@ -631,33 +809,5 @@
 
         StateHasChanged();
     }
-
-    private async Task HandleFileUpload(InputFileChangeEventArgs e)
-    {
-        var file = e.File;
-
-        if (!file.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
-        {
-            _errorMessage = "Only .xlsx files are supported. ";
-            return;
-        }
-
-        try
-        {
-            var MaxfileSize = 1024 * 1024 * 5;
-            var buffer = new byte[file.Size];
-            await file.OpenReadStream(MaxfileSize).ReadAsync(buffer);
-
-            _pendingExcelBase64 = Convert.ToBase64String(buffer);
-            _pendingExcelName = file.Name;
-            _errorMessage = null;
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Excel file Upload Error: {ex.Message}";
-            Console.WriteLine(ex);
-        }
-    }
-
 
 }

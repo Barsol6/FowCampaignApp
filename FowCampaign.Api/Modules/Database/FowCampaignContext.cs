@@ -59,7 +59,10 @@ public class FowCampaignContext : DbContext
             entity.Property(e => e.MapName).IsRequired().HasMaxLength(50);
         });
 
-        modelBuilder.Entity<BattleLog>(entity => { entity.HasKey(e => e.Id); });
+        modelBuilder.Entity<BattleLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+        });
 
         base.OnModelCreating(modelBuilder);
     }

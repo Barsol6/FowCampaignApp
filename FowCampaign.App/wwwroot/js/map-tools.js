@@ -3,11 +3,17 @@
     ctx: null,
     img: null,
     originalImageData: null,
+    zoneLookup: null,
+    zoneLookupNames: [],
+    zoneLookupSeeds: [],
 
-    initMap: (canvasId, imageSrc) => {
-        return new Promise((resolve) => {
+    initMap: (canvasId, imageSrc) =>
+    {
+        return new Promise((resolve) =>
+        {
             const canvas = document.getElementById(canvasId);
-            if (!canvas || !imageSrc) {
+            if (!canvas || !imageSrc)
+            {
                 resolve({width: 0, height: 0});
                 return;
             }
@@ -15,7 +21,11 @@
             const ctx = canvas.getContext('2d', {willReadFrequently: true});
             const img = new Image();
 
-            img.onload = () => {
+            img.onload = () =>
+            {
+                window.mapTools.zoneLookup = null;
+                window.mapTools.zoneLookupNames = [];
+                window.mapTools.zoneLookupSeeds = [];
                 canvas.width = img.width;
                 canvas.height = img.height;
                 ctx.drawImage(img, 0, 0);
@@ -27,7 +37,8 @@
             };
 
 
-            img.onerror = (err) => {
+            img.onerror = (err) =>
+            {
                 console.error(err);
                 resolve({width: 0, height: 0});
             };
@@ -35,16 +46,24 @@
         });
     },
 
-    getClientDimensions: (elementId) => {
+    getClientDimensions: (elementId) =>
+    {
         const el = document.getElementById(elementId);
-        if (!el) return {width: 1, height: 1};
+        if (!el)
+        {
+            return {width: 1, height: 1};
+        }
         const rect = el.getBoundingClientRect();
         return {width: rect.width, height: rect.height};
     },
 
-    getCanvasCoordinates: (visualX, visualY) => {
+    getCanvasCoordinates: (visualX, visualY) =>
+    {
         const canvas = window.mapTools.canvas;
-        if (!canvas) return {x: visualX, y: visualY};
+        if (!canvas)
+        {
+            return {x: visualX, y: visualY};
+        }
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
@@ -54,24 +73,33 @@
         };
     },
 
-    floodFill: (visualX, visualY, fillColorHex) => {
+    floodFill: (visualX, visualY, fillColorHex) =>
+    {
         const coords = window.mapTools.getCanvasCoordinates(visualX, visualY);
         return window.mapTools.performFloodFill(coords.x, coords.y, fillColorHex, 60);
     },
 
-    floodFillRaw: (x, y, fillColorHex) => {
+    floodFillRaw: (x, y, fillColorHex) =>
+    {
         window.mapTools.performFloodFill(Math.floor(x), Math.floor(y), fillColorHex, 60);
     },
 
-    performFloodFill: (startX, startY, colorHex, tolerance = 60) => {
+    performFloodFill: (startX, startY, colorHex, tolerance = 60) =>
+    {
         const ctx = window.mapTools.ctx;
         const canvas = window.mapTools.canvas;
-        if (!ctx || !canvas) return null;
+        if (!ctx || !canvas)
+        {
+            return null;
+        }
 
         const width = canvas.width;
         const height = canvas.height;
 
-        if (startX < 0 || startY < 0 || startX >= width || startY >= height) return null;
+        if (startX < 0 || startY < 0 || startX >= width || startY >= height)
+        {
+            return null;
+        }
 
         const originalData = window.mapTools.originalImageData ? window.mapTools.originalImageData.data : ctx.getImageData(0, 0, width, height).data;
         const currentImageData = ctx.getImageData(0, 0, width, height);
@@ -82,20 +110,26 @@
         let effectiveX = Math.floor(startX);
         let effectiveY = Math.floor(startY);
 
-        const getBrightness = (x, y) => {
+        const getBrightness = (x, y) =>
+        {
             const idx = (y * width + x) * 4;
             return (originalData[idx] + originalData[idx + 1] + originalData[idx + 2]) / 3;
         };
 
-        if (getBrightness(effectiveX, effectiveY) < 80) {
+        if (getBrightness(effectiveX, effectiveY) < 80)
+        {
             let foundSafeSpot = false;
-            for (let r = 1; r <= 8; r++) {
+            for (let r = 1; r <= 8; r++)
+            {
                 const offsets = [[0, r], [0, -r], [r, 0], [-r, 0], [r, r], [-r, -r]];
-                for (let o of offsets) {
+                for (let o of offsets)
+                {
                     const nx = effectiveX + o[0];
                     const ny = effectiveY + o[1];
-                    if (nx >= 0 && ny >= 0 && nx < width && ny < height) {
-                        if (getBrightness(nx, ny) > 100) {
+                    if (nx >= 0 && ny >= 0 && nx < width && ny < height)
+                    {
+                        if (getBrightness(nx, ny) > 100)
+                        {
                             effectiveX = nx;
                             effectiveY = ny;
                             foundSafeSpot = true;
@@ -103,17 +137,26 @@
                         }
                     }
                 }
-                if (foundSafeSpot) break;
+                if (foundSafeSpot)
+                {
+                    break;
+                }
             }
-            if (!foundSafeSpot) return null;
+            if (!foundSafeSpot)
+            {
+                return null;
+            }
         }
 
         let r, g, b;
-        if (colorHex.length === 4) {
+        if (colorHex.length === 4)
+        {
             r = parseInt(colorHex[1] + colorHex[1], 16);
             g = parseInt(colorHex[2] + colorHex[2], 16);
             b = parseInt(colorHex[3] + colorHex[3], 16);
-        } else {
+        }
+        else
+        {
             r = parseInt(colorHex.slice(1, 3), 16);
             g = parseInt(colorHex.slice(3, 5), 16);
             b = parseInt(colorHex.slice(5, 7), 16);
@@ -125,13 +168,15 @@
         let startG = originalData[startIdx + 1];
         let startB = originalData[startIdx + 2];
 
-        if (startR > 200 && startG > 200 && startB > 200) {
+        if (startR > 200 && startG > 200 && startB > 200)
+        {
             startR = 255;
             startG = 255;
             startB = 255;
         }
 
-        const colorsMatch = (idx) => {
+        const colorsMatch = (idx) =>
+        {
             const or = originalData[idx];
             const og = originalData[idx + 1];
             const ob = originalData[idx + 2];
@@ -143,7 +188,8 @@
         visited[effectiveY * width + effectiveX] = 1;
         let head = 0;
 
-        while (head < queue.length) {
+        while (head < queue.length)
+        {
             const [x, y] = queue[head++];
             const pixelIndex = (y * width + x) * 4;
             data[pixelIndex] = fillRgb.r;
@@ -152,13 +198,17 @@
             data[pixelIndex + 3] = fillRgb.a;
 
             const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-            for (const [nx, ny] of neighbors) {
-                if (nx >= 0 && ny >= 0 && nx < width && ny < height) {
+            for (const [nx, ny] of neighbors)
+            {
+                if (nx >= 0 && ny >= 0 && nx < width && ny < height)
+                {
                     const vIdx = ny * width + nx;
                     const nIdx = vIdx * 4;
 
-                    if (visited[vIdx] === 0) {
-                        if (colorsMatch(nIdx)) {
+                    if (visited[vIdx] === 0)
+                    {
+                        if (colorsMatch(nIdx))
+                        {
                             visited[vIdx] = 1;
                             queue.push([nx, ny]);
                         }
@@ -172,17 +222,27 @@
     },
 
 
-    resetMap: () => {
-        if (window.mapTools.ctx && window.mapTools.originalImageData) {
+    resetMap: () =>
+    {
+        window.mapTools.zoneLookup = null;
+        if (window.mapTools.ctx && window.mapTools.originalImageData)
+        {
             window.mapTools.ctx.putImageData(window.mapTools.originalImageData, 0, 0);
         }
     },
 
-    getSize: (clientX, clientY) => {
+    getSize: (clientX, clientY) =>
+    {
         const canvas = window.mapTools.canvas;
-        if (!canvas) return null;
+        if (!canvas)
+        {
+            return null;
+        }
         const wrapper = canvas.closest('.canvas-wrapper');
-        if (!wrapper) return null;
+        if (!wrapper)
+        {
+            return null;
+        }
         const wrapperRect = wrapper.getBoundingClientRect();
         const canvasRect = canvas.getBoundingClientRect();
         const offsetX_wrapper = clientX - wrapperRect.left;
@@ -194,9 +254,13 @@
         return { x: realX, y: realY };
     },
 
-    getRealCoordinates: (clientX, clientY) => {
+    getRealCoordinates: (clientX, clientY) =>
+    {
         const canvas = window.mapTools.canvas;
-        if (!canvas) return null;
+        if (!canvas)
+        {
+            return null;
+        }
 
         const canvasRect = canvas.getBoundingClientRect();
 
@@ -207,16 +271,282 @@
         return { x: offsetX, y: offsetY };
     },
 
-    getCanvasDataUrl: () => {
+    getCanvasDataUrl: () =>
+    {
         const canvas = window.mapTools.canvas;
-        if (!canvas) return null;
+        if (!canvas)
+        {
+            return null;
+        }
         return canvas.toDataURL('image/png', 1.0);
     },
 
-    calculateAdjacency: (zones, borderThickness = 15) => {
+    buildZoneLookup: (zones) =>
+    {
         const canvas = window.mapTools.canvas;
         const ctx = window.mapTools.ctx;
-        if (!canvas || !ctx || !zones || zones.length === 0) return {};
+        if (!canvas || !ctx || !zones)
+        {
+            return;
+        }
+
+        const width = canvas.width;
+        const height = canvas.height;
+        const pixels = window.mapTools.originalImageData?.data ?? ctx.getImageData(0, 0, width, height).data;
+        const lookup = new Int32Array(width * height).fill(-1);
+        const queue = [];
+        const colors = [];
+
+        zones.forEach((zone, index) =>
+        {
+            const x = Math.floor(zone.x);
+            const y = Math.floor(zone.y);
+            if (x < 0 || y < 0 || x >= width || y >= height)
+            {
+                return;
+            }
+            const pixel = (y * width + x) * 4;
+            colors[index] = [pixels[pixel], pixels[pixel + 1], pixels[pixel + 2]];
+            const point = y * width + x;
+            if (lookup[point] !== -1)
+            {
+                return;
+            }
+            lookup[point] = index;
+            queue.push(point);
+        });
+
+        for (let head = 0; head < queue.length; head++)
+        {
+            const point = queue[head];
+            const zoneId = lookup[point];
+            const color = colors[zoneId];
+            const x = point % width;
+            const y = Math.floor(point / width);
+            const neighbors = [];
+            if (x > 0)
+            {
+                neighbors.push(point - 1);
+            }
+            if (x + 1 < width)
+            {
+                neighbors.push(point + 1);
+            }
+            if (y > 0)
+            {
+                neighbors.push(point - width);
+            }
+            if (y + 1 < height)
+            {
+                neighbors.push(point + width);
+            }
+
+            for (const next of neighbors)
+            {
+                if (lookup[next] !== -1)
+                {
+                    continue;
+                }
+                const pixel = next * 4;
+                const difference = Math.abs(pixels[pixel] - color[0]) +
+                    Math.abs(pixels[pixel + 1] - color[1]) +
+                    Math.abs(pixels[pixel + 2] - color[2]);
+                if (difference >= 80)
+                {
+                    continue;
+                }
+                lookup[next] = zoneId;
+                queue.push(next);
+            }
+        }
+
+        window.mapTools.zoneLookup = lookup;
+        window.mapTools.zoneLookupNames = zones.map(zone => zone.name);
+        window.mapTools.zoneLookupSeeds = zones.map(zone => ({x: zone.x, y: zone.y}));
+    },
+
+    findPlacementInZone: (zoneName, units) =>
+    {
+        const tools = window.mapTools;
+        const zoneId = tools.zoneLookupNames.indexOf(zoneName);
+        const seed = tools.zoneLookupSeeds[zoneId];
+        if (!seed)
+        {
+            return null;
+        }
+        return tools.findFreeZonePosition(zoneId, seed.x, seed.y, units || [], 1);
+    },
+
+    getZoneIndexAt: (x, y) =>
+    {
+        const tools = window.mapTools;
+        const canvas = tools.canvas;
+        const lookup = tools.zoneLookup;
+        if (!canvas || !lookup)
+        {
+            return -1;
+        }
+        const centerX = Math.floor(x);
+        const centerY = Math.floor(y);
+        if (centerX < 0 || centerY < 0 || centerX >= canvas.width || centerY >= canvas.height)
+        {
+            return -1;
+        }
+        let zoneId = lookup[centerY * canvas.width + centerX];
+        for (let radius = 1; radius <= 8 && zoneId === -1; radius++)
+        {
+            for (let dy = -radius; dy <= radius && zoneId === -1; dy++)
+            {
+                for (let dx = -radius; dx <= radius && zoneId === -1; dx++)
+                {
+                    if (Math.abs(dx) !== radius && Math.abs(dy) !== radius)
+                    {
+                        continue;
+                    }
+                    const nx = centerX + dx, ny = centerY + dy;
+                    if (nx >= 0 && ny >= 0 && nx < canvas.width && ny < canvas.height)
+                    {
+                        zoneId = lookup[ny * canvas.width + nx];
+                    }
+                }
+            }
+        }
+        return zoneId;
+    },
+
+    getZoneNameAt: (x, y) =>
+    {
+        const tools = window.mapTools;
+        const zoneId = tools.getZoneIndexAt(x, y);
+        return zoneId >= 0 ? tools.zoneLookupNames[zoneId] : "";
+    },
+
+    findFreeZonePosition: (zoneId, preferredX, preferredY, units, scale, ignoredUnitId = null) =>
+    {
+        const tools = window.mapTools;
+        const canvas = tools.canvas;
+        const lookup = tools.zoneLookup;
+        if (!canvas || !lookup || zoneId < 0)
+        {
+            return null;
+        }
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height)
+        {
+            return null;
+        }
+        const unitWidth = 40 * Math.max(0.3, scale || 1) * canvas.width / rect.width;
+        const unitHeight = 40 * Math.max(0.3, scale || 1) * canvas.height / rect.height;
+        const occupied = (units || []).filter(unit => unit.id !== ignoredUnitId).map(unit => ({
+            x: unit.x,
+            y: unit.y,
+            width: 40 * Math.max(0.3, unit.scale || 1) * canvas.width / rect.width,
+            height: 40 * Math.max(0.3, unit.scale || 1) * canvas.height / rect.height
+        }));
+        const isInside = (x, y) => x >= 0 && y >= 0 && x < canvas.width && y < canvas.height &&
+            lookup[Math.floor(y) * canvas.width + Math.floor(x)] === zoneId;
+        const isFree = (x, y) => isInside(x, y) && !occupied.some(unit =>
+            Math.abs(unit.x - x) < (unit.width + unitWidth) / 2 &&
+            Math.abs(unit.y - y) < (unit.height + unitHeight) / 2);
+        const roundInside = (x, y) => ({
+            x: Math.min(canvas.width - 1, Math.max(0, Math.round(x))),
+            y: Math.min(canvas.height - 1, Math.max(0, Math.round(y)))
+        });
+
+        if (isFree(preferredX, preferredY))
+        {
+            return roundInside(preferredX, preferredY);
+        }
+        const step = Math.max(4, Math.min(20, unitWidth / 4, unitHeight / 4));
+        const maxRadius = Math.hypot(canvas.width, canvas.height);
+        for (let radius = step; radius <= maxRadius; radius += step)
+        {
+            const points = Math.min(128, Math.max(12, Math.ceil(2 * Math.PI * radius / step)));
+            for (let point = 0; point < points; point++)
+            {
+                const angle = 2 * Math.PI * point / points;
+                const x = Math.round(preferredX + radius * Math.cos(angle));
+                const y = Math.round(preferredY + radius * Math.sin(angle));
+                if (isFree(x, y))
+                {
+                    return {x, y};
+                }
+            }
+        }
+
+        // A very small sector may have no room for another full icon.
+        if (isInside(preferredX, preferredY))
+        {
+            return roundInside(preferredX, preferredY);
+        }
+        const seed = tools.zoneLookupSeeds[zoneId];
+        return seed ? roundInside(seed.x, seed.y) : null;
+    },
+
+    snapUnitToZone: (zoneName, preferredX, preferredY, units, unitId, scale) =>
+    {
+        const tools = window.mapTools;
+        const zoneId = tools.zoneLookupNames.indexOf(zoneName);
+        return tools.findFreeZonePosition(zoneId, preferredX, preferredY, units, scale, unitId);
+    },
+
+    layoutUnitsInZones: (units) =>
+    {
+        const tools = window.mapTools;
+        if (!tools.zoneLookup)
+        {
+            return [];
+        }
+        const occupied = [];
+        const positions = [];
+        for (const unit of [...units].sort((a, b) => String(a.id).localeCompare(String(b.id))))
+        {
+            let zoneId = tools.getZoneIndexAt(unit.x, unit.y);
+            if (zoneId < 0)
+            {
+                zoneId = tools.zoneLookupNames.indexOf(unit.currentZoneName);
+            }
+            const position = tools.findFreeZonePosition(zoneId, unit.x, unit.y, occupied, unit.scale || 1) ||
+                {x: unit.x, y: unit.y};
+            occupied.push({id: unit.id, x: position.x, y: position.y, scale: unit.scale || 1});
+            positions.push({unitId: unit.id, x: position.x, y: position.y});
+        }
+        return positions;
+    },
+
+    getHoveredZone: (clientX, clientY) =>
+    {
+        const canvas = window.mapTools.canvas;
+        const lookup = window.mapTools.zoneLookup;
+        if (!canvas || !lookup)
+        {
+            return null;
+        }
+        const canvasRect = canvas.getBoundingClientRect();
+        const wrapperRect = canvas.parentElement.getBoundingClientRect();
+        const x = Math.floor((clientX - canvasRect.left) * canvas.width / canvasRect.width);
+        const y = Math.floor((clientY - canvasRect.top) * canvas.height / canvasRect.height);
+        if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height)
+        {
+            return null;
+        }
+
+        const zoneId = window.mapTools.getZoneIndexAt(x, y);
+        if (zoneId < 0)
+        {
+            return null;
+        }
+        return {name: window.mapTools.zoneLookupNames[zoneId], x: clientX - wrapperRect.left, y: clientY - wrapperRect.top};
+    },
+
+    calculateAdjacency: (zones, borderThickness = 15) =>
+    {
+        const canvas = window.mapTools.canvas;
+        const ctx = window.mapTools.ctx;
+        if (!canvas || !ctx || !zones || zones.length === 0)
+        {
+            return {};
+        }
 
         const width = canvas.width;
         const height = canvas.height;
@@ -227,7 +557,8 @@
         const qX = []; const qY = []; const qZone = []; const qDist = [];
         let head = 0;
 
-        for (let i = 0; i < zones.length; i++) {
+        for (let i = 0; i < zones.length; i++)
+        {
             const z = zones[i];
             let startX = Math.floor(z.x);
             let startY = Math.floor(z.y);
@@ -240,19 +571,24 @@
             zoneMap[startY * width + startX] = i;
             qX.push(startX); qY.push(startY); qZone.push(i); qDist.push(0);
 
-            while (localHead < localQX.length) {
+            while (localHead < localQX.length)
+            {
                 const cx = localQX[localHead];
                 const cy = localQY[localHead];
                 localHead++;
 
                 const neighbors = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
-                for (let [nx, ny] of neighbors) {
-                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                for (let [nx, ny] of neighbors)
+                {
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                    {
                         const idx = ny * width + nx;
-                        if (zoneMap[idx] === -1) {
+                        if (zoneMap[idx] === -1)
+                        {
                             const px = idx * 4;
                             const diff = Math.abs(imgData[px] - sr) + Math.abs(imgData[px + 1] - sg) + Math.abs(imgData[px + 2] - sb);
-                            if (diff < 60) {
+                            if (diff < 60)
+                            {
                                 zoneMap[idx] = i;
                                 localQX.push(nx); localQY.push(ny);
                                 qX.push(nx); qY.push(ny); qZone.push(i); qDist.push(0);
@@ -264,25 +600,37 @@
         }
 
         const adjacencyList = {};
-        for (let z of zones) adjacencyList[z.name] = new Set();
+        for (let z of zones)
+        {
+            adjacencyList[z.name] = new Set();
+        }
 
-        while (head < qX.length) {
+        while (head < qX.length)
+        {
             const cx = qX[head]; const cy = qY[head];
             const zoneIndex = qZone[head]; const dist = qDist[head];
             head++;
 
-            if (dist >= borderThickness) continue;
+            if (dist >= borderThickness)
+            {
+                continue;
+            }
 
             const neighbors = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
-            for (let [nx, ny] of neighbors) {
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+            for (let [nx, ny] of neighbors)
+            {
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                {
                     const idx = ny * width + nx;
                     const neighborZone = zoneMap[idx];
 
-                    if (neighborZone === -1) {
+                    if (neighborZone === -1)
+                    {
                         zoneMap[idx] = zoneIndex;
                         qX.push(nx); qY.push(ny); qZone.push(zoneIndex); qDist.push(dist + 1);
-                    } else if (neighborZone !== zoneIndex) {
+                    }
+                    else if (neighborZone !== zoneIndex)
+                    {
                         adjacencyList[zones[zoneIndex].name].add(zones[neighborZone].name);
                         adjacencyList[zones[neighborZone].name].add(zones[zoneIndex].name);
                     }
@@ -291,14 +639,21 @@
         }
 
         const finalGraph = {};
-        for (let key in adjacencyList) finalGraph[key] = Array.from(adjacencyList[key]);
+        for (let key in adjacencyList)
+        {
+            finalGraph[key] = Array.from(adjacencyList[key]);
+        }
         return finalGraph;
     },
 
-    calculateAdjacency: (zones, borderThickness = 15) => {
+    calculateAdjacency: (zones, borderThickness = 15) =>
+    {
         const canvas = window.mapTools.canvas;
         const ctx = window.mapTools.ctx;
-        if (!canvas || !ctx || !zones || zones.length === 0) return {};
+        if (!canvas || !ctx || !zones || zones.length === 0)
+        {
+            return {};
+        }
 
         const width = canvas.width;
         const height = canvas.height;
@@ -308,7 +663,8 @@
         const qX = []; const qY = []; const qZone = []; const qDist = [];
         let head = 0;
 
-        for (let i = 0; i < zones.length; i++) {
+        for (let i = 0; i < zones.length; i++)
+        {
             let cx = Math.floor(zones[i].x);
             let cy = Math.floor(zones[i].y);
 
@@ -321,22 +677,27 @@
 
             qX.push(cx); qY.push(cy); qZone.push(i); qDist.push(0);
 
-            while (localHead < localQX.length) {
+            while (localHead < localQX.length)
+            {
                 const currX = localQX[localHead];
                 const currY = localQY[localHead];
                 localHead++;
 
                 const neighbors = [[currX + 1, currY], [currX - 1, currY], [currX, currY + 1], [currX, currY - 1]];
-                for (let n = 0; n < neighbors.length; n++) {
+                for (let n = 0; n < neighbors.length; n++)
+                {
                     const nx = neighbors[n][0];
                     const ny = neighbors[n][1];
 
-                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                    {
                         const idx = ny * width + nx;
-                        if (zoneMap[idx] === -1) {
+                        if (zoneMap[idx] === -1)
+                        {
                             const px = idx * 4;
                             const diff = Math.abs(imgData[px] - sr) + Math.abs(imgData[px+1] - sg) + Math.abs(imgData[px+2] - sb);
-                            if (diff < 80) {
+                            if (diff < 80)
+                            {
                                 zoneMap[idx] = i;
                                 localQX.push(nx); localQY.push(ny);
                                 qX.push(nx); qY.push(ny); qZone.push(i); qDist.push(0);
@@ -348,29 +709,39 @@
         }
 
         const adjacencyList = {};
-        for (let i = 0; i < zones.length; i++) {
+        for (let i = 0; i < zones.length; i++)
+        {
             adjacencyList[zones[i].name] = new Set();
         }
 
-        while (head < qX.length) {
+        while (head < qX.length)
+        {
             const cx = qX[head]; const cy = qY[head];
             const zoneIndex = qZone[head]; const dist = qDist[head];
             head++;
 
-            if (dist >= borderThickness) continue;
+            if (dist >= borderThickness)
+            {
+                continue;
+            }
 
             const neighbors = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
-            for (let n = 0; n < neighbors.length; n++) {
+            for (let n = 0; n < neighbors.length; n++)
+            {
                 const nx = neighbors[n][0]; const ny = neighbors[n][1];
 
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                {
                     const idx = ny * width + nx;
                     const neighborZone = zoneMap[idx];
 
-                    if (neighborZone === -1) {
+                    if (neighborZone === -1)
+                    {
                         zoneMap[idx] = zoneIndex; 
                         qX.push(nx); qY.push(ny); qZone.push(zoneIndex); qDist.push(dist + 1);
-                    } else if (neighborZone !== zoneIndex) {
+                    }
+                    else if (neighborZone !== zoneIndex)
+                    {
                         adjacencyList[zones[zoneIndex].name].add(zones[neighborZone].name);
                         adjacencyList[zones[neighborZone].name].add(zones[zoneIndex].name);
                     }
@@ -379,16 +750,21 @@
         }
 
         const finalGraph = {};
-        for (let key in adjacencyList) {
+        for (let key in adjacencyList)
+        {
             finalGraph[key] = Array.from(adjacencyList[key]);
         }
         return finalGraph;
     },
 
-    assignUnitsToZones: (units, zones) => {
+    assignUnitsToZones: (units, zones) =>
+    {
         const canvas = window.mapTools.canvas;
         const ctx = window.mapTools.ctx;
-        if (!canvas || !ctx || !zones || zones.length === 0 || !units || units.length === 0) return [];
+        if (!canvas || !ctx || !zones || zones.length === 0 || !units || units.length === 0)
+        {
+            return [];
+        }
 
         const width = canvas.width;
         const height = canvas.height;
@@ -401,7 +777,8 @@
         const qZone = [];
         const startColors = [];
 
-        for (let i = 0; i < zones.length; i++) {
+        for (let i = 0; i < zones.length; i++)
+        {
             let cx = Math.floor(zones[i].x);
             let cy = Math.floor(zones[i].y);
             const startIdx = (cy * width + cx) * 4;
@@ -419,7 +796,8 @@
         }
 
         let head = 0;
-        while (head < qX.length) {
+        while (head < qX.length)
+        {
             const currX = qX[head];
             const currY = qY[head];
             const zId = qZone[head];
@@ -428,18 +806,22 @@
             const sc = startColors[zId];
             const neighbors = [[currX + 1, currY], [currX - 1, currY], [currX, currY + 1], [currX, currY - 1]];
 
-            for (let n = 0; n < neighbors.length; n++) {
+            for (let n = 0; n < neighbors.length; n++)
+            {
                 const nx = neighbors[n][0];
                 const ny = neighbors[n][1];
 
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                {
                     const idx = ny * width + nx;
 
-                    if (zoneMap[idx] === -1) {
+                    if (zoneMap[idx] === -1)
+                    {
                         const px = idx * 4;
                         const diff = Math.abs(imgData[px] - sc.r) + Math.abs(imgData[px+1] - sc.g) + Math.abs(imgData[px+2] - sc.b);
 
-                        if (diff < 80) { 
+                        if (diff < 80)
+                        {
                             zoneMap[idx] = zId;
                             qX.push(nx);
                             qY.push(ny);
@@ -451,25 +833,36 @@
         }
 
         const result = [];
-        for (let i = 0; i < units.length; i++) {
+        for (let i = 0; i < units.length; i++)
+        {
             let ux = Math.floor(units[i].x !== undefined ? units[i].x : units[i].X);
             let uy = Math.floor(units[i].y !== undefined ? units[i].y : units[i].Y);
             let uId = units[i].id !== undefined ? units[i].id : units[i].Id;
 
-            if (ux >= 0 && ux < width && uy >= 0 && uy < height) {
+            if (ux >= 0 && ux < width && uy >= 0 && uy < height)
+            {
                 let zIdx = zoneMap[uy * width + ux];
 
       
-                if (zIdx === -1) {
+                if (zIdx === -1)
+                {
                     let found = false;
-                    for(let r = 1; r <= 15 && !found; r++) {
-                        for(let dx = -r; dx <= r && !found; dx++) {
-                            for(let dy = -r; dy <= r && !found; dy++) {
-                                if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+                    for(let r = 1; r <= 15 && !found; r++)
+                    {
+                        for(let dx = -r; dx <= r && !found; dx++)
+                        {
+                            for(let dy = -r; dy <= r && !found; dy++)
+                            {
+                                if (Math.abs(dx) !== r && Math.abs(dy) !== r)
+                                {
+                                    continue;
+                                }
                                 let nx = ux + dx, ny = uy + dy;
-                                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                                {
                                     let nIdx = zoneMap[ny * width + nx];
-                                    if (nIdx !== -1) {
+                                    if (nIdx !== -1)
+                                    {
                                         zIdx = nIdx;
                                         found = true;
                                     }
@@ -479,7 +872,8 @@
                     }
                 }
 
-                if (zIdx !== -1 && uId !== undefined) {
+                if (zIdx !== -1 && uId !== undefined)
+                {
                     result.push({ unitId: String(uId), zoneId: zIdx });
                 }
             }
