@@ -2,6 +2,7 @@
 @using System.Globalization
 @using System.Text.Json
 @using ClosedXML.Excel
+@using Markdig
 @using FowCampaign.App.DTO
 @using FowCampaign.App.Handlers
 @using FowCampaign.App.Shared
@@ -62,9 +63,15 @@
                 <div class="game-map-viewport">
                     <div class="canvas-container game-map-surface game-map-zoom-@_gameMapZoom"
                          @onmousemove="HandleWrapperMouseMove"
+                         @onmouseleave="HideRegionTooltip"
                          @onmouseup="HandleWrapperMouseUp">
 
                         <canvas id="gameCanvas" class="game-canvas game-map-canvas"></canvas>
+
+                        @if (_hoveredRegion != null)
+                        {
+                            <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name</div>
+                        }
 
                         @if (_isProcessingMap)
                         {
@@ -85,7 +92,7 @@
                                 var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
                                 var isMyUnit = unit.FactionName == _gameDataApp.MyFactionName;
 
-                                var canDrag = isMyUnit && (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.PostCombatMoving);
+                                var canDrag = isMyUnit && !IsMyFactionMovementConfirmed && (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.PostCombatMoving);
 
                                 var dragClass = canDrag ? "unit-draggable" : "unit-locked";
                                 var pointerClass = _draggingUnitApp != null ? "pointer-events-none" : "";
@@ -114,6 +121,7 @@
                     <h4 class="section-header">COMMAND</h4>
 
                     <button class="btn-full btn-open-roster" @onclick="() => _showRosterModal = true">OPEN UNIT ROSTER</button>
+                    <button class="btn-full btn-archive" @onclick="() => _showRulesModal = true">CAMPAIGN RULES</button>
                     <button class="btn-full btn-archive" @onclick="() => _showResultsModal = true">BATTLE LOGS</button>
 
                     @if (_selectedUnitForScale != null)
@@ -145,7 +153,7 @@
                         }
                         else
                         {
-                            <div class="status-box status-waiting"><strong>STATUS:</strong> Waiting for other players...</div>
+                            <div class="status-box status-waiting"><strong>STATUS:</strong> Waiting for all other factions...</div>
                         }
                         <div class="faction-command-panel">
                             <div class="faction-command-panel-title">MOVEMENT CONFIRMATION</div>
@@ -304,7 +312,7 @@
                                                 <button class="btn-full"
                                                         style="background-color: #222; color: #ccc; text-align: left; padding: 6px; margin-bottom: 3px; font-size: 0.9rem; border: 1px solid #555;"
                                                         @onclick="() => OpenExcelEditor(u)">
-                                                    📄 EDIT: @(def?.Name ?? "Unknown Unit")
+                                                    EDIT: @(def?.Name ?? "Unknown Unit")
                                                 </button>
                                             }
                                         </div>
@@ -394,6 +402,19 @@
     }
 </PaperSheet>
 
+@if (_showRulesModal)
+{
+    <div class="roster-modal-overlay" @onclick="() => _showRulesModal = false">
+        <section class="campaign-rules-modal" role="dialog" aria-modal="true" aria-labelledby="campaign-rules-title" @onclick:stopPropagation="true">
+            <div class="roster-modal-header">
+                <h2 id="campaign-rules-title" class="roster-modal-title">CAMPAIGN RULES</h2>
+                <button class="btn-close-modal" @onclick="() => _showRulesModal = false">CLOSE [X]</button>
+            </div>
+            <div class="campaign-rules-content">@((MarkupString)RenderRules(_stateApp?.Rules ?? string.Empty))</div>
+        </section>
+    </div>
+}
+
 @if (_showRouteChoiceModal)
 {
     <div class="roster-modal-overlay">
@@ -459,6 +480,43 @@
             </div>
             @if (_editingUnitApp == null)
             {
+                @if (!string.IsNullOrWhiteSpace(_actionErrorMessage))
+                {
+                    <div class="action-validation-message">@_actionErrorMessage</div>
+                }
+                @if (CanManageArmies)
+                {
+                    <div class="roster-army-form">
+                        <h3>ADD ARMY</h3>
+                        <select class="battle-color-select" @bind="_newUnitDefinitionId" aria-label="Army type">
+                            <option value="">+ NEW ARMY TYPE</option>
+                            @foreach (var definition in _stateApp.UnitDefinitions)
+                            {
+                                <option value="@definition.Id">@definition.Name</option>
+                            }
+                        </select>
+                        @if (string.IsNullOrEmpty(_newUnitDefinitionId))
+                        {
+                            <input class="tactical-input" @bind="_newUnitName" placeholder="New army type name" aria-label="New army type name"/>
+                            <label class="btn-edit-excel roster-upload-label">
+                                + NEW ARMY ICON
+                                <InputFile OnChange="UploadNewUnitIconAsync" accept="image/*" class="roster-upload-input"/>
+                            </label>
+                            @if (!string.IsNullOrEmpty(_newUnitIconBase64))
+                            {
+                                <img class="roster-unit-icon" src="@_newUnitIconBase64" alt="New army icon"/>
+                            }
+                        }
+                        <select class="battle-color-select" @bind="_newUnitZoneName" aria-label="Army region">
+                            <option value="">SELECT REGION...</option>
+                            @foreach (var zone in _stateApp.Zones.OrderBy(zone => zone.Name))
+                            {
+                                <option value="@zone.Name">@zone.Name</option>
+                            }
+                        </select>
+                        <button class="btn-edit-excel" @onclick="AddArmyAsync">ADD TO MY FACTION</button>
+                    </div>
+                }
                 <table class="roster-table">
                     <thead>
                     <tr>
@@ -483,7 +541,15 @@
                             <td class="text-muted">@(string.IsNullOrEmpty(u.ExcelDatabase64) ? "[ No File ]" : string.IsNullOrEmpty(u.ExcelFileName) ? "[ Custom Edited Grid ]" : u.ExcelFileName)</td>
                             <td class="text-dim">X: @((int)u.X), Y: @((int)u.Y)</td>
                             <td class="text-right">
+                                <label class="btn-edit-excel roster-upload-label">
+                                    ATTACH EXCEL
+                                    <InputFile OnChange="e => UploadUnitExcelAsync(u, e)" accept=".xlsx" class="roster-upload-input"/>
+                                </label>
                                 <button class="btn-edit-excel" @onclick="() => OpenExcelEditor(u)">EDIT EXCEL</button>
+                                @if (CanManageArmies)
+                                {
+                                    <button class="btn-edit-excel roster-delete-army" @onclick="() => DeleteArmyAsync(u)">REMOVE</button>
+                                }
                             </td>
                         </tr>
                     }
@@ -611,6 +677,7 @@
     private double _mapRealWidth = 1;
     private double _mapRealHeight = 1;
     private double _dragScaleFactor = 1.0;
+    private HoveredRegion? _hoveredRegion;
     private readonly Dictionary<string, int> _majorPoints = new();
     private readonly Dictionary<string, int> _minorPoints = new();
 
@@ -622,6 +689,13 @@
     private List<List<string>> _activeExcelGrid = new();
     private byte[] _originalExcelBytes;
     private bool _showRosterModal;
+    private bool _showRulesModal;
+    private string _newUnitDefinitionId = string.Empty;
+    private string _newUnitZoneName = string.Empty;
+    private string _newUnitName = string.Empty;
+    private string _newUnitIconBase64 = string.Empty;
+    private static readonly MarkdownPipeline RulesMarkdownPipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+    private static string RenderRules(string rules) => Markdown.ToHtml(rules, RulesMarkdownPipeline);
 
     private HubConnection? _hubConnection;
     private ActiveBattleAppDto? _activeBattleApp;
@@ -642,6 +716,7 @@
     private readonly SemaphoreSlim _stateRefreshLock = new(1, 1);
 
     private bool IsMyFactionMovementConfirmed => _stateApp?.ConfirmedMovementFactions.Contains(_gameDataApp?.MyFactionName ?? string.Empty) == true;
+    private bool CanManageArmies => (_stateApp?.Phase is TurnPhase.Moving or TurnPhase.PostCombatMoving) && !IsMyFactionMovementConfirmed;
 
     protected override async Task OnInitializedAsync()
     {
@@ -804,10 +879,16 @@
     {
         if (_draggingUnitApp != null)
         {
+            _hoveredRegion = null;
             _draggingUnitApp.X = e.OffsetX * _dragScaleFactor;
             _draggingUnitApp.Y = e.OffsetY * _dragScaleFactor;
+            return;
         }
+
+        _hoveredRegion = await JS.InvokeAsync<HoveredRegion?>("mapTools.getHoveredZone", e.ClientX, e.ClientY);
     }
+
+    private void HideRegionTooltip() => _hoveredRegion = null;
 
     private async Task HandleWrapperMouseUp(MouseEventArgs _)
     {
@@ -878,13 +959,15 @@
             return;
         }
 
-        if (_stateApp.AdjacencyGraph.TryGetValue(originZoneName, out var directNeighbors) && directNeighbors.Contains(destinationZoneName, StringComparer.OrdinalIgnoreCase))
+        // Movement range restrictions are temporarily disabled while route rules are refined.
+        // if (_stateApp.AdjacencyGraph.TryGetValue(originZoneName, out var directNeighbors) && directNeighbors.Contains(destinationZoneName, StringComparer.OrdinalIgnoreCase))
         {
             _trialManeuvers[unit.Id] = maneuver;
             await SaveCompleteDraftAsync();
             return;
         }
 
+        /* Restore this route selection when movement restrictions are enabled again.
         var possibleIntermediateRoutes = _stateApp.Zones
             .Where(zone => string.Equals(zone.FactionName, _gameDataApp.MyFactionName, StringComparison.OrdinalIgnoreCase))
             .Where(zone => _stateApp.AdjacencyGraph.TryGetValue(originZoneName, out var originNeighbors) && originNeighbors.Contains(zone.Name, StringComparer.OrdinalIgnoreCase))
@@ -911,6 +994,7 @@
         _pendingIntermediateRoutes = possibleIntermediateRoutes;
         _pendingRouteDestinationName = destinationZoneName;
         _showRouteChoiceModal = true;
+        */
     }
 
     private async Task ConfirmRouteChoice(string intermediateZoneName)
@@ -976,8 +1060,13 @@
                 continue;
             }
 
-            if (!mappingsByUnitId.TryGetValue(unit.Id, out var zoneId) || zoneId < 0 || zoneId >= _stateApp.Zones.Count) continue;
-            var zoneName = _stateApp.Zones[zoneId].Name;
+            var zoneName = _stateApp.Zones.FirstOrDefault(zone =>
+                string.Equals(zone.Name, unit.CurrentZoneName, StringComparison.OrdinalIgnoreCase))?.Name;
+            if (zoneName == null)
+            {
+                if (!mappingsByUnitId.TryGetValue(unit.Id, out var zoneId) || zoneId < 0 || zoneId >= _stateApp.Zones.Count) continue;
+                zoneName = _stateApp.Zones[zoneId].Name;
+            }
             completeDraft.Add(new UnitManeuver
             {
                 UnitId = unit.Id,
@@ -1241,6 +1330,13 @@
         public double Height { get; set; }
     }
 
+    public class HoveredRegion
+    {
+        public string Name { get; set; } = string.Empty;
+        public double X { get; set; }
+        public double Y { get; set; }
+    }
+
     private async Task OpenExcelEditor(UnitAppDto unitApp)
     {
         _actionErrorMessage = string.Empty;
@@ -1279,6 +1375,119 @@
         {
             GenerateBlankTemplate();
         }
+    }
+
+    private async Task UploadUnitExcelAsync(UnitAppDto unitApp, InputFileChangeEventArgs e)
+    {
+        _actionErrorMessage = string.Empty;
+        var file = e.File;
+        if (!file.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            _actionErrorMessage = "Only .xlsx files are supported.";
+            return;
+        }
+
+        try
+        {
+            await using var stream = file.OpenReadStream(5 * 1024 * 1024);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var bytes = buffer.ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+            using var workbook = new XLWorkbook(new MemoryStream(bytes));
+            var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/unit/{unitApp.Id}/excel", new UpdateUnitExcelAppDto
+            {
+                ExcelFileName = file.Name,
+                ExcelDatabase64 = base64
+            });
+            if (!response.IsSuccessStatusCode)
+            {
+                _actionErrorMessage = await ReadErrorMessageAsync(response, "The unit spreadsheet could not be uploaded.");
+                return;
+            }
+
+            unitApp.ExcelFileName = file.Name;
+            unitApp.ExcelDatabase64 = base64;
+        }
+        catch (Exception ex)
+        {
+            _actionErrorMessage = $"Unable to read the .xlsx file: {ex.Message}";
+        }
+    }
+
+    private async Task UploadNewUnitIconAsync(InputFileChangeEventArgs e)
+    {
+        _actionErrorMessage = string.Empty;
+        try
+        {
+            var resized = await e.File.RequestImageFileAsync("image/png", 64, 64);
+            await using var stream = resized.OpenReadStream(256 * 1024);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            _newUnitIconBase64 = "data:image/png;base64," + Convert.ToBase64String(buffer.ToArray());
+        }
+        catch (Exception ex)
+        {
+            _actionErrorMessage = $"Unable to read the army icon: {ex.Message}";
+        }
+    }
+
+    private async Task AddArmyAsync()
+    {
+        _actionErrorMessage = string.Empty;
+        if (!CanManageArmies || _stateApp == null || _gameDataApp == null) return;
+        var zone = _stateApp.Zones.FirstOrDefault(candidate => candidate.Name == _newUnitZoneName);
+        if (zone == null)
+        {
+            _actionErrorMessage = "Select a region for the army.";
+            return;
+        }
+        if (string.IsNullOrEmpty(_newUnitDefinitionId) &&
+            (string.IsNullOrWhiteSpace(_newUnitName) || string.IsNullOrEmpty(_newUnitIconBase64)))
+        {
+            _actionErrorMessage = "Enter a name and upload an icon for the new army type.";
+            return;
+        }
+
+        var position = await JS.InvokeAsync<MapPosition?>("mapTools.findPlacementInZone", zone.Name, _stateApp.Units);
+        var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/units", new CreateUnitAppDto
+        {
+            DefinitionId = _newUnitDefinitionId,
+            NewDefinitionName = _newUnitName,
+            NewDefinitionImageBase64 = _newUnitIconBase64,
+            CurrentZoneName = zone.Name,
+            X = position?.X ?? zone.X,
+            Y = position?.Y ?? zone.Y
+        });
+        if (!response.IsSuccessStatusCode)
+        {
+            _actionErrorMessage = await ReadErrorMessageAsync(response, "The army could not be added.");
+            return;
+        }
+
+        _newUnitName = string.Empty;
+        _newUnitIconBase64 = string.Empty;
+        await RefreshGameStateAsync();
+    }
+
+    private async Task DeleteArmyAsync(UnitAppDto unitApp)
+    {
+        _actionErrorMessage = string.Empty;
+        if (!CanManageArmies || _gameDataApp == null || unitApp.FactionName != _gameDataApp.MyFactionName) return;
+        var response = await Http.DeleteAsync($"api/Campaign/{Id}/units/{unitApp.Id}");
+        if (!response.IsSuccessStatusCode)
+        {
+            _actionErrorMessage = await ReadErrorMessageAsync(response, "The army could not be removed.");
+            return;
+        }
+
+        await RefreshGameStateAsync();
+    }
+
+    public class MapPosition
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 
     private void GenerateBlankTemplate()
@@ -1400,6 +1609,8 @@
             if (!string.IsNullOrEmpty(factionColor))
                 await JS.InvokeVoidAsync("mapTools.floodFillRaw", zone.X, zone.Y, factionColor);
         }
+
+        await JS.InvokeVoidAsync("mapTools.buildZoneLookup", _stateApp.Zones);
     }
 
     public async ValueTask DisposeAsync()

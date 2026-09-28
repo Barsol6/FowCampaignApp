@@ -8,6 +8,7 @@ public class GameStateDto
     public List<ZoneSeedApiDto> Zones { get; set; } = new();
     public List<UnitApiDto> Units { get; set; } = new();
     public List<UnitDefinitionApiDto> UnitDefinitions { get; set; } = new();
+    public string Rules { get; set; } = string.Empty;
     public string CurrentTurnFaction { get; set; } = string.Empty;
     public int TurnNumber { get; set; }
     public TurnPhase Phase { get; set; } = TurnPhase.Moving;

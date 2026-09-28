@@ -6,6 +6,7 @@ public class GameStateAppDto
     public List<ZoneSeedAppDto> Zones { get; set; } = new();
     public List<UnitAppDto> Units { get; set; } = new();
     public List<UnitDefinitionAppDto> UnitDefinitions { get; set; } = new();
+    public string Rules { get; set; } = string.Empty;
     public string CurrentTurnFaction { get; set; } = string.Empty;
     public int TurnNumber { get; set; }
     public TurnPhase Phase { get; set; } = TurnPhase.Moving;

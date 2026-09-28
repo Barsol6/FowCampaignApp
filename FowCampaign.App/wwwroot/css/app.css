@@ -691,6 +691,102 @@ canvas {
     pointer-events: none;
 }
 
+.region-tooltip {
+    position: absolute;
+    z-index: 110;
+    transform: translate(14px, 14px);
+    pointer-events: none;
+    padding: 6px 10px;
+    border: 1px solid #a88c58;
+    background: #f5e9cb;
+    box-shadow: 2px 3px 0 rgba(39, 30, 19, 0.6);
+    color: #332718;
+    font: bold 0.8rem 'Courier New', monospace;
+    white-space: nowrap;
+}
+
+.roster-upload-label {
+    display: inline-block;
+    cursor: pointer;
+    margin-right: 6px;
+}
+
+.roster-upload-input {
+    display: none;
+}
+
+.campaign-rules-editor {
+    display: grid;
+    gap: 8px;
+    max-width: 900px;
+    margin: 20px auto 0;
+    font: bold 0.9rem 'Courier New', monospace;
+    color: #332718;
+}
+
+.campaign-rules-editor span {
+    font-weight: normal;
+}
+
+.campaign-rules-editor textarea {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 150px;
+    resize: vertical;
+}
+
+.campaign-rules-modal {
+    width: min(780px, calc(100vw - 32px));
+    max-height: 85vh;
+    overflow: auto;
+    padding: 24px;
+    background: #f5e9cb;
+    border: 2px solid #5d432a;
+    box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.45);
+    color: #332718;
+}
+
+.campaign-rules-modal .roster-modal-title {
+    color: #332718;
+}
+
+.campaign-rules-content {
+    overflow-wrap: anywhere;
+    font-family: 'Special Elite', 'Courier New', monospace;
+    line-height: 1.5;
+}
+
+.campaign-rules-content img {
+    max-width: 100%;
+}
+
+.roster-army-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 15px 0;
+    padding: 12px;
+    border: 1px solid #666;
+    background: #252525;
+}
+
+.roster-army-form h3 {
+    width: 100%;
+    margin: 0;
+    color: #e6d5ac;
+    font: bold 0.95rem 'Courier New', monospace;
+}
+
+.roster-army-form .tactical-input {
+    max-width: 220px;
+}
+
+.roster-delete-army {
+    margin-left: 6px;
+    color: #f2a8a8;
+}
+
 .game-map-zoom-50 { width: 50%; }
 .game-map-zoom-75 { width: 75%; }
 .game-map-zoom-100 { width: 100%; }

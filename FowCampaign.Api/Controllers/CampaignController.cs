@@ -50,6 +50,8 @@ public class CampaignController : ControllerBase
         var initialState = JsonSerializer.Deserialize<GameStateDto>(request.GameStateJson, _jsonOptions);
         if (initialState == null || initialState.Factions.Count == 0)
             return BadRequest("A campaign must contain at least one faction.");
+        if (string.IsNullOrWhiteSpace(initialState.Rules))
+            return BadRequest("Campaign rules are required.");
 
         if (!initialState.Factions.Any(f => f.Name == request.CreatorFactionName))
             return BadRequest("The creator must select a faction from this campaign.");
@@ -229,6 +231,84 @@ public class CampaignController : ControllerBase
         return Ok();
     }
 
+    [HttpPost("{id}/units")]
+    public async Task<IActionResult> CreateUnit(int id, [FromBody] CreateUnitApiDto request)
+    {
+        var (campaign, player, state, error) = await LoadCampaignStateAsync(id);
+        if (error != null) return error;
+        if (state!.Phase is not (TurnPhase.Moving or TurnPhase.PostCombatMoving) ||
+            state.ConfirmedMovementFactions.Contains(player!.FactionName))
+            return BadRequest("Armies can be added only before your faction confirms movement.");
+
+        if (!double.IsFinite(request.X) || !double.IsFinite(request.Y) || request.X < 0 || request.Y < 0)
+            return BadRequest("Select a valid map position.");
+        var zone = state.Zones.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, request.CurrentZoneName, StringComparison.OrdinalIgnoreCase));
+        if (zone == null) return BadRequest("Select a named region for the army.");
+
+        var definition = state.UnitDefinitions.FirstOrDefault(candidate => candidate.Id == request.DefinitionId);
+        if (definition == null)
+        {
+            if (string.IsNullOrWhiteSpace(request.NewDefinitionName) ||
+                request.NewDefinitionImageBase64?.StartsWith("data:image/png;base64,", StringComparison.OrdinalIgnoreCase) != true)
+                return BadRequest("Choose an army type or provide a name and PNG icon.");
+
+            try
+            {
+                var imageBytes = Convert.FromBase64String(request.NewDefinitionImageBase64[("data:image/png;base64,".Length)..]);
+                if (imageBytes.Length == 0 || imageBytes.Length > 256 * 1024)
+                    return BadRequest("The army icon is too large or empty.");
+            }
+            catch (FormatException)
+            {
+                return BadRequest("The army icon is invalid.");
+            }
+
+            definition = new UnitDefinitionApiDto
+            {
+                Name = request.NewDefinitionName.Trim(),
+                ImageBase64 = request.NewDefinitionImageBase64
+            };
+            state.UnitDefinitions.Add(definition);
+        }
+
+        state.Units.Add(new UnitApiDto
+        {
+            DefinitionId = definition.Id,
+            FactionName = player!.FactionName,
+            X = request.X,
+            Y = request.Y,
+            CurrentZoneName = zone.Name
+        });
+        campaign!.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
+        await _context.SaveChangesAsync();
+        await _hubContext.Clients.Group($"Campaign_{id}").SendAsync("GameUpdated");
+        return Ok();
+    }
+
+    [HttpDelete("{id}/units/{unitId}")]
+    public async Task<IActionResult> DeleteUnit(int id, string unitId)
+    {
+        var (campaign, player, state, error) = await LoadCampaignStateAsync(id);
+        if (error != null) return error;
+        if (state!.Phase is not (TurnPhase.Moving or TurnPhase.PostCombatMoving) ||
+            state.ConfirmedMovementFactions.Contains(player!.FactionName))
+            return BadRequest("Armies can be removed only before your faction confirms movement.");
+
+        var unit = state.Units.FirstOrDefault(candidate => candidate.Id == unitId);
+        if (unit == null) return NotFound("Army not found.");
+        if (!string.Equals(unit.FactionName, player.FactionName, StringComparison.OrdinalIgnoreCase))
+            return Forbid();
+
+        state.Units.Remove(unit);
+        if (state.MovementDrafts.TryGetValue(player.FactionName, out var draft))
+            draft.RemoveAll(maneuver => maneuver.UnitId == unitId);
+        campaign!.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
+        await _context.SaveChangesAsync();
+        await _hubContext.Clients.Group($"Campaign_{id}").SendAsync("GameUpdated");
+        return Ok();
+    }
+
     [HttpPost("{id}/maneuver/draft")]
     public async Task<IActionResult> SaveMovementDraft(int id, [FromBody] List<UnitManeuver> maneuvers)
     {
@@ -268,8 +348,7 @@ public class CampaignController : ControllerBase
             state.ConfirmedMovementFactions.Add(player.FactionName);
         state.MovementDrafts.Remove(player.FactionName);
 
-        var playerFactions = campaign!.Players.Select(member => member.FactionName).Distinct().ToList();
-        if (playerFactions.All(faction => state.ConfirmedMovementFactions.Contains(faction)))
+        if (state.Factions.All(faction => state.ConfirmedMovementFactions.Contains(faction.Name)))
             ResolveConfirmedMovement(state);
 
         campaign.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
@@ -565,6 +644,8 @@ public class CampaignController : ControllerBase
                 !zonesByName.TryGetValue(maneuver.DestinationZoneName, out var destination))
                 return "A movement references an unknown sector.";
 
+            /* Movement range and ownership restrictions are temporarily disabled.
+               Keep this validation here for when route rules are refined.
             if (string.Equals(origin.Name, destination.Name, StringComparison.OrdinalIgnoreCase))
             {
                 if (!string.IsNullOrWhiteSpace(maneuver.IntermediateZoneName))
@@ -591,6 +672,7 @@ public class CampaignController : ControllerBase
             if (!string.Equals(intermediate.FactionName, factionName, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(destination.FactionName, factionName, StringComparison.OrdinalIgnoreCase))
                 return "Both sectors of a two-sector move must belong to your faction.";
+            */
         }
 
         return null;

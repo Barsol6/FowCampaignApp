@@ -3,6 +3,9 @@
     ctx: null,
     img: null,
     originalImageData: null,
+    zoneLookup: null,
+    zoneLookupNames: [],
+    zoneLookupSeeds: [],
 
     initMap: (canvasId, imageSrc) => {
         return new Promise((resolve) => {
@@ -16,6 +19,9 @@
             const img = new Image();
 
             img.onload = () => {
+                window.mapTools.zoneLookup = null;
+                window.mapTools.zoneLookupNames = [];
+                window.mapTools.zoneLookupSeeds = [];
                 canvas.width = img.width;
                 canvas.height = img.height;
                 ctx.drawImage(img, 0, 0);
@@ -173,6 +179,7 @@
 
 
     resetMap: () => {
+        window.mapTools.zoneLookup = null;
         if (window.mapTools.ctx && window.mapTools.originalImageData) {
             window.mapTools.ctx.putImageData(window.mapTools.originalImageData, 0, 0);
         }
@@ -211,6 +218,109 @@
         const canvas = window.mapTools.canvas;
         if (!canvas) return null;
         return canvas.toDataURL('image/png', 1.0);
+    },
+
+    buildZoneLookup: (zones) => {
+        const canvas = window.mapTools.canvas;
+        const ctx = window.mapTools.ctx;
+        if (!canvas || !ctx || !zones) return;
+
+        const width = canvas.width;
+        const height = canvas.height;
+        const pixels = window.mapTools.originalImageData?.data ?? ctx.getImageData(0, 0, width, height).data;
+        const lookup = new Int32Array(width * height).fill(-1);
+        const queue = [];
+        const colors = [];
+
+        zones.forEach((zone, index) => {
+            const x = Math.floor(zone.x);
+            const y = Math.floor(zone.y);
+            if (x < 0 || y < 0 || x >= width || y >= height) return;
+            const pixel = (y * width + x) * 4;
+            colors[index] = [pixels[pixel], pixels[pixel + 1], pixels[pixel + 2]];
+            const point = y * width + x;
+            if (lookup[point] !== -1) return;
+            lookup[point] = index;
+            queue.push(point);
+        });
+
+        for (let head = 0; head < queue.length; head++) {
+            const point = queue[head];
+            const zoneId = lookup[point];
+            const color = colors[zoneId];
+            const x = point % width;
+            const y = Math.floor(point / width);
+            const neighbors = [];
+            if (x > 0) neighbors.push(point - 1);
+            if (x + 1 < width) neighbors.push(point + 1);
+            if (y > 0) neighbors.push(point - width);
+            if (y + 1 < height) neighbors.push(point + width);
+
+            for (const next of neighbors) {
+                if (lookup[next] !== -1) continue;
+                const pixel = next * 4;
+                const difference = Math.abs(pixels[pixel] - color[0]) +
+                    Math.abs(pixels[pixel + 1] - color[1]) +
+                    Math.abs(pixels[pixel + 2] - color[2]);
+                if (difference >= 80) continue;
+                lookup[next] = zoneId;
+                queue.push(next);
+            }
+        }
+
+        window.mapTools.zoneLookup = lookup;
+        window.mapTools.zoneLookupNames = zones.map(zone => zone.name);
+        window.mapTools.zoneLookupSeeds = zones.map(zone => ({x: zone.x, y: zone.y}));
+    },
+
+    findPlacementInZone: (zoneName, units) => {
+        const canvas = window.mapTools.canvas;
+        const lookup = window.mapTools.zoneLookup;
+        const zoneId = window.mapTools.zoneLookupNames.indexOf(zoneName);
+        const seed = window.mapTools.zoneLookupSeeds[zoneId];
+        if (!canvas || !lookup || !seed) return null;
+
+        const occupied = units || [];
+        for (let radius = 0; radius <= 240; radius += 32) {
+            const points = radius === 0 ? 1 : Math.max(8, Math.ceil(2 * Math.PI * radius / 32));
+            for (let point = 0; point < points; point++) {
+                const angle = 2 * Math.PI * point / points;
+                const x = Math.round(seed.x + radius * Math.cos(angle));
+                const y = Math.round(seed.y + radius * Math.sin(angle));
+                if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) continue;
+                if (lookup[y * canvas.width + x] !== zoneId) continue;
+                if (occupied.some(unit => Math.hypot(unit.x - x, unit.y - y) < 32)) continue;
+                return {x, y};
+            }
+        }
+        return {x: seed.x, y: seed.y};
+    },
+
+    getHoveredZone: (clientX, clientY) => {
+        const canvas = window.mapTools.canvas;
+        const lookup = window.mapTools.zoneLookup;
+        if (!canvas || !lookup) return null;
+        const canvasRect = canvas.getBoundingClientRect();
+        const wrapperRect = canvas.parentElement.getBoundingClientRect();
+        const x = Math.floor((clientX - canvasRect.left) * canvas.width / canvasRect.width);
+        const y = Math.floor((clientY - canvasRect.top) * canvas.height / canvasRect.height);
+        if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return null;
+
+        let zoneId = lookup[y * canvas.width + x];
+        if (zoneId === -1) {
+            for (let radius = 1; radius <= 8 && zoneId === -1; radius++) {
+                for (let dy = -radius; dy <= radius && zoneId === -1; dy++) {
+                    for (let dx = -radius; dx <= radius && zoneId === -1; dx++) {
+                        if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+                        const nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && ny >= 0 && nx < canvas.width && ny < canvas.height)
+                            zoneId = lookup[ny * canvas.width + nx];
+                    }
+                }
+            }
+        }
+        if (zoneId < 0) return null;
+        return {name: window.mapTools.zoneLookupNames[zoneId], x: clientX - wrapperRect.left, y: clientY - wrapperRect.top};
     },
 
     calculateAdjacency: (zones, borderThickness = 15) => {
