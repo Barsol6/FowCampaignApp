@@ -263,7 +263,7 @@
                     </div>
                 </div>
 
-                @if (_showBattlePanel && _battleZone != null)
+                @if (_showBattlePanel && _activeBattleApp != null)
                 {
                     <div class="sidebar-section battle-panel">
                         <h4 class="section-header">⚔ BATTLE — @(_battleZoneName.ToUpper())</h4>
@@ -480,7 +480,7 @@
     <div class="roster-modal-overlay">
         <div class="stance-modal-paper" style="width: 500px;">
             <h3 class="stance-modal-title">TACTICAL STANCES</h3>
-            <div class="stance-zone-name">SECTOR: @_battleZoneName</div>
+            <div class="stance-zone-name">@(_activeBattleApp?.IsSectorSwap == true ? "SECTORS" : "SECTOR"): @_battleZoneName</div>
 
             @{ var myFaction = _gameDataApp?.MyFactionName ?? "UNKNOWN";
                 var currentStance = _factionStances.ContainsKey(myFaction) ? _factionStances[myFaction] : BattleStance.Defend; }
@@ -715,7 +715,6 @@
     private Dictionary<string, BattleStance> _factionStances = new();
 
     private string _battleZoneName;
-    private ZoneSeedAppDto? _battleZone;
     private List<UnitAppDto> _battleUnits = [];
     private double _mapRealWidth = 1;
     private double _mapRealHeight = 1;
@@ -1307,7 +1306,8 @@
             }
         }
 
-        if (_showStanceModal && _stateApp?.PendingStances.TryGetValue(_battleZoneName, out var submittedStances) == true &&
+        if (_showStanceModal && _activeBattleApp != null &&
+            _stateApp?.PendingStances.TryGetValue(GetBattleStanceKey(_activeBattleApp), out var submittedStances) == true &&
             submittedStances.ContainsKey(_gameDataApp?.MyFactionName ?? string.Empty))
         {
             _showStanceModal = false;
@@ -1323,12 +1323,11 @@
         _actionErrorMessage = string.Empty;
         _activeBattleApp = battle;
         _battleZoneName = battle.ZoneName;
-        _battleZone = _stateApp?.Zones.FirstOrDefault(zone => zone.Name == battle.ZoneName);
         _battleUnits = _stateApp?.Units.Where(unit => battle.UnitIds.Contains(unit.Id)).ToList() ?? [];
         _scenarioName = battle.ScenarioName;
         _majorPoints.Clear();
         _minorPoints.Clear();
-        _factionStances = _stateApp?.PendingStances.TryGetValue(battle.ZoneName, out var savedStances) == true
+        _factionStances = _stateApp?.PendingStances.TryGetValue(GetBattleStanceKey(battle), out var savedStances) == true
             ? new Dictionary<string, BattleStance>(savedStances)
             : battle.Factions.ToDictionary(faction => faction, _ => BattleStance.Defend);
 
@@ -1341,6 +1340,9 @@
         _showBattlePanel = true;
         _showStanceModal = false;
     }
+
+    private static string GetBattleStanceKey(ActiveBattleAppDto battle) =>
+        battle.IsSectorSwap ? battle.Id : battle.ZoneName;
 
     private void OpenBattleForStance(ActiveBattleAppDto battle)
     {
@@ -1404,6 +1406,7 @@
 
         var dto = new SubmitStanceAppDto
         {
+            BattleId = _activeBattleApp.Id,
             ZoneName = _battleZoneName,
             Stance = myStance,
             FactionsInvolved = factionsInvolved
@@ -1432,7 +1435,7 @@
     private async Task ConfirmBattleResults()
     {
         _actionErrorMessage = string.Empty;
-        if (_stateApp == null || _battleZone == null || _activeBattleApp == null)
+        if (_stateApp == null || _activeBattleApp == null)
         {
             _actionErrorMessage = "This battle is no longer available. Reopen it from the combat list.";
             return;

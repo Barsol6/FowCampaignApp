@@ -8,6 +8,9 @@ public class ActiveBattleApiDto
     public List<string> Factions { get; set; } = new();
     public List<string> UnitIds { get; set; } = new();
     public List<string> InterceptedUnitIds { get; set; } = new();
+    public bool IsSectorSwap { get; set; }
+    public string SwapZoneA { get; set; } = string.Empty;
+    public string SwapZoneB { get; set; } = string.Empty;
     public bool IsAmphibious { get; set; }
     public string AttackerFaction { get; set; } = string.Empty;
     public string DefenderFaction { get; set; } = string.Empty;
