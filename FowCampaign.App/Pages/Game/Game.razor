@@ -117,6 +117,30 @@
             </div>
 
             <div class="intel-sidebar">
+                @{
+                    var factionScores = GetFactionScores();
+                }
+                <section class="scoreboard-panel" aria-label="Faction scoreboard">
+                    <div class="scoreboard-heading">
+                        <span>SECTOR SCOREBOARD</span>
+                        <span class="scoreboard-heading-mark">★</span>
+                    </div>
+                    <ol class="scoreboard-list">
+                        @for (var i = 0; i < factionScores.Count; i++)
+                        {
+                            var score = factionScores[i];
+                            <li class="scoreboard-row @(string.Equals(score.Name, _gameDataApp.MyFactionName, StringComparison.OrdinalIgnoreCase) ? "scoreboard-row-current" : "")">
+                                <span class="scoreboard-rank">@(i + 1).</span>
+                                <span class="scoreboard-color" style="background-color: @score.Color;"></span>
+                                <span class="scoreboard-faction">
+                                    <strong>@score.Name</strong>
+                                    <small>@score.Sectors @(score.Sectors == 1 ? "SECTOR" : "SECTORS")</small>
+                                </span>
+                                <span class="scoreboard-points">@score.Points <small>PTS</small></span>
+                            </li>
+                        }
+                    </ol>
+                </section>
                 <div class="sidebar-section">
                     <h4 class="section-header">COMMAND</h4>
 
@@ -737,6 +761,34 @@
 
     private bool IsMyFactionMovementConfirmed => _stateApp?.ConfirmedMovementFactions.Contains(_gameDataApp?.MyFactionName ?? string.Empty) == true;
     private bool CanManageArmies => (_stateApp?.Phase is TurnPhase.Moving or TurnPhase.PostCombatMoving) && !IsMyFactionMovementConfirmed;
+
+    private sealed record FactionScore(string Name, string Color, long Points, int Sectors);
+
+    private List<FactionScore> GetFactionScores()
+    {
+        if (_stateApp == null)
+        {
+            return [];
+        }
+
+        var scoresByFaction = _stateApp.Zones
+            .Where(zone => !string.IsNullOrWhiteSpace(zone.FactionName))
+            .GroupBy(zone => zone.FactionName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => (Points: group.Sum(zone => (long)zone.Points), Sectors: group.Count()),
+                StringComparer.OrdinalIgnoreCase);
+
+        return _stateApp.Factions
+            .Select(faction =>
+            {
+                scoresByFaction.TryGetValue(faction.Name, out var score);
+                return new FactionScore(faction.Name, faction.Color, score.Points, score.Sectors);
+            })
+            .OrderByDescending(score => score.Points)
+            .ThenBy(score => score.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     protected override async Task OnInitializedAsync()
     {
