@@ -70,7 +70,7 @@
 
                         @if (_hoveredRegion != null)
                         {
-                            <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name</div>
+                            <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name @_hoveredRegion.Points points</div>
                         }
 
                         @if (_isProcessingMap)
@@ -1481,6 +1481,7 @@
     public class HoveredRegion
     {
         public string Name { get; set; } = string.Empty;
+        public int Points { get; set; }
         public double X { get; set; }
         public double Y { get; set; }
     }
