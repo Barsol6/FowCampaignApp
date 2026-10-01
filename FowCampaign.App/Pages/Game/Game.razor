@@ -45,7 +45,7 @@
             </div>
         }
 
-        <div class="game-container">
+        <div class="game-container" @onclick="CloseUnitContextMenu">
 
             <div class="map-panel">
                 <div class="map-sticky-header">
@@ -70,7 +70,7 @@
 
                         @if (_hoveredRegion != null)
                         {
-                            <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name</div>
+                            <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name @_hoveredRegion.Points points</div>
                         }
 
                         @if (_isProcessingMap)
@@ -92,7 +92,9 @@
                                 var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
                                 var isMyUnit = unit.FactionName == _gameDataApp.MyFactionName;
 
-                                var canDrag = isMyUnit && !IsMyFactionMovementConfirmed && (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.PostCombatMoving);
+                                var canGiveOrder = isMyUnit && !IsMyFactionMovementConfirmed && (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.PostCombatMoving);
+                                var isDigInOrder = _trialManeuvers.TryGetValue(unit.Id, out var plannedOrder) && plannedOrder.DigIn;
+                                var canDrag = canGiveOrder && !isDigInOrder;
 
                                 var dragClass = canDrag ? "unit-draggable" : "unit-locked";
                                 var pointerClass = _draggingUnitApp != null ? "pointer-events-none" : "";
@@ -101,15 +103,36 @@
                                 var factionColor = GetFactionColor(unit.FactionName);
 
                                 var currentScale = unit.Scale > 0 ? unit.Scale : 1.0;
-                                var positionStyle = $"left: {leftPercent.ToString("F2", CultureInfo.InvariantCulture)}%; top: {topPercent.ToString("F2", CultureInfo.InvariantCulture)}%; transform: translate(-50%, -50%) scale({currentScale.ToString(CultureInfo.InvariantCulture)}); border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";                            {
+                                var xPercent = leftPercent.ToString("F2", CultureInfo.InvariantCulture);
+                                var yPercent = topPercent.ToString("F2", CultureInfo.InvariantCulture);
+                                var positionStyle = $"left: {xPercent}%; top: {yPercent}%; transform: translate(-50%, -50%) scale({currentScale.ToString(CultureInfo.InvariantCulture)}); border: 2px solid {factionColor}; box-shadow: 0 0 5px {factionColor};";
+                                var badgeStyle = $"left: {xPercent}%; top: calc({yPercent}% + {(16 * currentScale + 5).ToString(CultureInfo.InvariantCulture)}px);";
+                                var menuOffset = (18 * currentScale).ToString(CultureInfo.InvariantCulture);
+                                var menuStyle = leftPercent > 70
+                                    ? $"right: calc({(100 - leftPercent).ToString("F2", CultureInfo.InvariantCulture)}% + {menuOffset}px); top: {yPercent}%;"
+                                    : $"left: calc({xPercent}% + {menuOffset}px); top: {yPercent}%;";
                                 <div class="map-unit @dragClass @pointerClass"
                                      style="@positionStyle"
-                                     @onmousedown="() => StartDrag(unit)"
-                                     @onmousedown:stopPropagation="true">
+                                     @onmousedown="e => StartDrag(e, unit)"
+                                     @onmousedown:stopPropagation="true"
+                                     @oncontextmenu="() => OpenUnitContextMenu(unit)"
+                                     @oncontextmenu:preventDefault="@canGiveOrder"
+                                     @oncontextmenu:stopPropagation="true">
                                     <img src="@def.ImageBase64" style="width:100%; height:100%; object-fit:contain;"
                                          title="@def.Name"/>
                                 </div>
-                            }
+                                @if (IsUnitDugInForDisplay(unit))
+                                {
+                                    <span class="map-unit-dug-in" style="@badgeStyle">DUG IN</span>
+                                }
+                                @if (_unitContextMenuId == unit.Id && canGiveOrder)
+                                {
+                                    <div class="unit-context-menu" style="@menuStyle" role="menu" aria-label="Unit orders" @onclick:stopPropagation="true">
+                                        <button type="button" role="menuitem" @onclick="() => SetUnitDigInAsync(unit, !isDigInOrder)">
+                                            @(isDigInOrder ? "CANCEL DIG IN" : "DIG IN")
+                                        </button>
+                                    </div>
+                                }
                             }
                         }
                     </div>
@@ -117,6 +140,30 @@
             </div>
 
             <div class="intel-sidebar">
+                @{
+                    var factionScores = GetFactionScores();
+                }
+                <section class="scoreboard-panel" aria-label="Faction scoreboard">
+                    <div class="scoreboard-heading">
+                        <span>SCOREBOARD</span>
+                        <span class="scoreboard-heading-mark">★</span>
+                    </div>
+                    <ol class="scoreboard-list">
+                        @for (var i = 0; i < factionScores.Count; i++)
+                        {
+                            var score = factionScores[i];
+                            <li class="scoreboard-row @(string.Equals(score.Name, _gameDataApp.MyFactionName, StringComparison.OrdinalIgnoreCase) ? "scoreboard-row-current" : "")">
+                                <span class="scoreboard-rank">@(i + 1).</span>
+                                <span class="scoreboard-color" style="background-color: @score.Color;"></span>
+                                <span class="scoreboard-faction">
+                                    <strong>@score.Name</strong>
+                                    <small>@score.Sectors @(score.Sectors == 1 ? "SECTOR" : "SECTORS")</small>
+                                </span>
+                                <span class="scoreboard-points">@score.Points <small>PTS</small></span>
+                            </li>
+                        }
+                    </ol>
+                </section>
                 <div class="sidebar-section">
                     <h4 class="section-header">COMMAND</h4>
 
@@ -239,7 +286,7 @@
                     </div>
                 </div>
 
-                @if (_showBattlePanel && _battleZone != null)
+                @if (_showBattlePanel && _activeBattleApp != null)
                 {
                     <div class="sidebar-section battle-panel">
                         <h4 class="section-header">⚔ BATTLE — @(_battleZoneName.ToUpper())</h4>
@@ -456,7 +503,7 @@
     <div class="roster-modal-overlay">
         <div class="stance-modal-paper" style="width: 500px;">
             <h3 class="stance-modal-title">TACTICAL STANCES</h3>
-            <div class="stance-zone-name">SECTOR: @_battleZoneName</div>
+            <div class="stance-zone-name">@(_activeBattleApp?.IsSectorSwap == true ? "SECTORS" : "SECTOR"): @_battleZoneName</div>
 
             @{ var myFaction = _gameDataApp?.MyFactionName ?? "UNKNOWN";
                 var currentStance = _factionStances.ContainsKey(myFaction) ? _factionStances[myFaction] : BattleStance.Defend; }
@@ -691,7 +738,6 @@
     private Dictionary<string, BattleStance> _factionStances = new();
 
     private string _battleZoneName;
-    private ZoneSeedAppDto? _battleZone;
     private List<UnitAppDto> _battleUnits = [];
     private double _mapRealWidth = 1;
     private double _mapRealHeight = 1;
@@ -724,6 +770,8 @@
     private int _gameMapZoom = 100;
     private int _layoutZoom = -1;
     private readonly Dictionary<string, UnitManeuver> _trialManeuvers = new();
+    private readonly Dictionary<string, MapPosition> _unitOriginPositions = new();
+    private string? _unitContextMenuId;
     private double _dragStartX;
     private double _dragStartY;
     private bool _showRouteChoiceModal;
@@ -737,6 +785,34 @@
 
     private bool IsMyFactionMovementConfirmed => _stateApp?.ConfirmedMovementFactions.Contains(_gameDataApp?.MyFactionName ?? string.Empty) == true;
     private bool CanManageArmies => (_stateApp?.Phase is TurnPhase.Moving or TurnPhase.PostCombatMoving) && !IsMyFactionMovementConfirmed;
+
+    private sealed record FactionScore(string Name, string Color, long Points, int Sectors);
+
+    private List<FactionScore> GetFactionScores()
+    {
+        if (_stateApp == null)
+        {
+            return [];
+        }
+
+        var scoresByFaction = _stateApp.Zones
+            .Where(zone => !string.IsNullOrWhiteSpace(zone.FactionName))
+            .GroupBy(zone => zone.FactionName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => (Points: group.Sum(zone => (long)zone.Points), Sectors: group.Count()),
+                StringComparer.OrdinalIgnoreCase);
+
+        return _stateApp.Factions
+            .Select(faction =>
+            {
+                scoresByFaction.TryGetValue(faction.Name, out var score);
+                return new FactionScore(faction.Name, faction.Color, score.Points, score.Sectors);
+            })
+            .OrderByDescending(score => score.Points)
+            .ThenBy(score => score.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -797,6 +873,12 @@
 
         _gameDataApp = gameData;
         _stateApp = state;
+        CloseUnitContextMenu();
+        _unitOriginPositions.Clear();
+        foreach (var unit in state.Units)
+        {
+            _unitOriginPositions[unit.Id] = new MapPosition { X = unit.X, Y = unit.Y };
+        }
         if (_selectedUnitForScale != null)
         {
             _selectedUnitForScale = state.Units.FirstOrDefault(unit => unit.Id == _selectedUnitForScale.Id);
@@ -825,7 +907,7 @@
             foreach (var maneuver in savedDraft)
             {
                 var unit = state.Units.FirstOrDefault(candidate => candidate.Id == maneuver.UnitId);
-                if (unit == null)
+                if (unit == null || maneuver.DigIn)
                 {
                     continue;
                 }
@@ -923,8 +1005,82 @@
         }
     }
 
-    private async Task StartDrag(UnitAppDto unitApp)
+    private bool CanGiveUnitOrder(UnitAppDto unit) =>
+        (_stateApp?.Phase is TurnPhase.Moving or TurnPhase.PostCombatMoving) &&
+        !IsMyFactionMovementConfirmed &&
+        string.Equals(unit.FactionName, _gameDataApp?.MyFactionName, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsUnitDugInForDisplay(UnitAppDto unit)
     {
+        if (_trialManeuvers.TryGetValue(unit.Id, out var order))
+        {
+            if (order.DigIn)
+            {
+                return true;
+            }
+
+            if (order.IsMovementOrder ||
+                !string.Equals(order.OriginZoneName, order.DestinationZoneName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return unit.IsDugIn;
+    }
+
+    private void OpenUnitContextMenu(UnitAppDto unit)
+    {
+        _unitContextMenuId = CanGiveUnitOrder(unit) ? unit.Id : null;
+    }
+
+    private void CloseUnitContextMenu()
+    {
+        _unitContextMenuId = null;
+    }
+
+    private async Task SetUnitDigInAsync(UnitAppDto unit, bool digIn)
+    {
+        CloseUnitContextMenu();
+        if (!CanGiveUnitOrder(unit))
+        {
+            return;
+        }
+
+        if (_unitOriginPositions.TryGetValue(unit.Id, out var origin))
+        {
+            unit.X = origin.X;
+            unit.Y = origin.Y;
+        }
+
+        if (digIn)
+        {
+            _trialManeuvers[unit.Id] = new UnitManeuver
+            {
+                UnitId = unit.Id,
+                TargetX = unit.X,
+                TargetY = unit.Y,
+                OriginZoneName = unit.CurrentZoneName,
+                DestinationZoneName = unit.CurrentZoneName,
+                DigIn = true
+            };
+        }
+        else
+        {
+            _trialManeuvers.Remove(unit.Id);
+        }
+
+        await SaveCompleteDraftAsync();
+    }
+
+    private async Task StartDrag(MouseEventArgs e, UnitAppDto unitApp)
+    {
+        if (e.Button != 0)
+        {
+            return;
+        }
+
+        CloseUnitContextMenu();
         _selectedUnitForScale = unitApp;
 
         if (_stateApp.Phase != TurnPhase.Moving && _stateApp.Phase != TurnPhase.PostCombatMoving)
@@ -938,6 +1094,11 @@
 
         if (unitApp.FactionName == _gameDataApp.MyFactionName)
         {
+            if (_trialManeuvers.TryGetValue(unitApp.Id, out var order) && order.DigIn)
+            {
+                return;
+            }
+
             _draggingUnitApp = unitApp;
             _dragStartX = unitApp.X;
             _dragStartY = unitApp.Y;
@@ -976,6 +1137,7 @@
     private void HandleMapMouseLeave()
     {
         _hoveredRegion = null;
+        CloseUnitContextMenu();
         if (_draggingUnitApp == null)
         {
             return;
@@ -1063,7 +1225,8 @@
             TargetX = unit.X,
             TargetY = unit.Y,
             OriginZoneName = originZoneName,
-            DestinationZoneName = destinationZoneName
+            DestinationZoneName = destinationZoneName,
+            IsMovementOrder = true
         };
 
         if (string.Equals(originZoneName, destinationZoneName, StringComparison.OrdinalIgnoreCase))
@@ -1255,7 +1418,8 @@
             }
         }
 
-        if (_showStanceModal && _stateApp?.PendingStances.TryGetValue(_battleZoneName, out var submittedStances) == true &&
+        if (_showStanceModal && _activeBattleApp != null &&
+            _stateApp?.PendingStances.TryGetValue(GetBattleStanceKey(_activeBattleApp), out var submittedStances) == true &&
             submittedStances.ContainsKey(_gameDataApp?.MyFactionName ?? string.Empty))
         {
             _showStanceModal = false;
@@ -1271,12 +1435,11 @@
         _actionErrorMessage = string.Empty;
         _activeBattleApp = battle;
         _battleZoneName = battle.ZoneName;
-        _battleZone = _stateApp?.Zones.FirstOrDefault(zone => zone.Name == battle.ZoneName);
         _battleUnits = _stateApp?.Units.Where(unit => battle.UnitIds.Contains(unit.Id)).ToList() ?? [];
         _scenarioName = battle.ScenarioName;
         _majorPoints.Clear();
         _minorPoints.Clear();
-        _factionStances = _stateApp?.PendingStances.TryGetValue(battle.ZoneName, out var savedStances) == true
+        _factionStances = _stateApp?.PendingStances.TryGetValue(GetBattleStanceKey(battle), out var savedStances) == true
             ? new Dictionary<string, BattleStance>(savedStances)
             : battle.Factions.ToDictionary(faction => faction, _ => BattleStance.Defend);
 
@@ -1289,6 +1452,9 @@
         _showBattlePanel = true;
         _showStanceModal = false;
     }
+
+    private static string GetBattleStanceKey(ActiveBattleAppDto battle) =>
+        battle.IsSectorSwap ? battle.Id : battle.ZoneName;
 
     private void OpenBattleForStance(ActiveBattleAppDto battle)
     {
@@ -1352,6 +1518,7 @@
 
         var dto = new SubmitStanceAppDto
         {
+            BattleId = _activeBattleApp.Id,
             ZoneName = _battleZoneName,
             Stance = myStance,
             FactionsInvolved = factionsInvolved
@@ -1380,7 +1547,7 @@
     private async Task ConfirmBattleResults()
     {
         _actionErrorMessage = string.Empty;
-        if (_stateApp == null || _battleZone == null || _activeBattleApp == null)
+        if (_stateApp == null || _activeBattleApp == null)
         {
             _actionErrorMessage = "This battle is no longer available. Reopen it from the combat list.";
             return;
@@ -1481,6 +1648,7 @@
     public class HoveredRegion
     {
         public string Name { get; set; } = string.Empty;
+        public int Points { get; set; }
         public double X { get; set; }
         public double Y { get; set; }
     }
@@ -1662,6 +1830,10 @@
         foreach (var position in positions)
         {
             if (!byId.TryGetValue(position.UnitId, out var unit))
+            {
+                continue;
+            }
+            if (IsUnitDugInForDisplay(unit))
             {
                 continue;
             }

@@ -647,7 +647,8 @@ public class CampaignController : ControllerBase
             return BadRequest("A scenario name is required.");
         }
 
-        if (!battle.IsAmphibious && !battle.Factions.All(faction => state.PendingStances.TryGetValue(battle.ZoneName, out var stances) && stances.ContainsKey(faction)))
+        var stanceKey = GetBattleStanceKey(battle);
+        if (!battle.IsAmphibious && !battle.Factions.All(faction => state.PendingStances.TryGetValue(stanceKey, out var stances) && stances.ContainsKey(faction)))
         {
             return BadRequest("Every faction must select a stance before resolving this battle.");
         }
@@ -660,7 +661,7 @@ public class CampaignController : ControllerBase
         request.CommanderUsername = User.Identity?.Name ?? string.Empty;
         request.Stances = battle.IsAmphibious
             ? new Dictionary<string, BattleStance>()
-            : state.PendingStances[battle.ZoneName];
+            : state.PendingStances[stanceKey];
         request.WinnerFactions = CalculateWinnerFactions(request.MajorPoints, request.MinorPoints, battle.Factions);
 
         foreach (var unitFile in request.UpdatedUnitFiles)
@@ -676,8 +677,13 @@ public class CampaignController : ControllerBase
         battle.WinnerFactions = request.WinnerFactions;
         battle.ScenarioName = request.ScenarioName;
         battle.CommanderUsername = request.CommanderUsername;
+        if (battle.IsSectorSwap)
+        {
+            battle.ColoringResolved = true;
+            battle.ColoringSkipped = true;
+        }
         state.BattleResults.Add(request);
-        state.PendingStances.Remove(battle.ZoneName);
+        state.PendingStances.Remove(stanceKey);
         ContinueInterceptedUnits(state, battle);
         ReconcilePendingUncontestedColors(state);
 
@@ -692,6 +698,7 @@ public class CampaignController : ControllerBase
         if (state.ActiveBattles.All(candidate => candidate.IsResolved))
         {
             state.Phase = TurnPhase.Coloring;
+            AdvanceAfterColoring(state);
         }
 
         campaign.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
@@ -710,7 +717,7 @@ public class CampaignController : ControllerBase
         }
 
         var battle = state!.ActiveBattles.FirstOrDefault(candidate => candidate.Id == request.BattleId && candidate.IsResolved && !candidate.ColoringResolved);
-        if (state.Phase != TurnPhase.Coloring || battle == null)
+        if (state.Phase != TurnPhase.Coloring || battle == null || battle.IsSectorSwap)
         {
             return BadRequest("This battle is not awaiting coloring.");
         }
@@ -764,7 +771,7 @@ public class CampaignController : ControllerBase
             return Forbid();
         }
 
-        if (state.ActiveBattles.Any(battle => string.Equals(battle.ZoneName, request.ZoneName, StringComparison.OrdinalIgnoreCase)))
+        if (state.ActiveBattles.Any(battle => !battle.IsSectorSwap && string.Equals(battle.ZoneName, request.ZoneName, StringComparison.OrdinalIgnoreCase)))
         {
             return BadRequest("Resolve the battle before coloring this sector.");
         }
@@ -793,7 +800,11 @@ public class CampaignController : ControllerBase
             return error;
         }
 
-        var battle = state!.ActiveBattles.FirstOrDefault(candidate => candidate.ZoneName == request.ZoneName && !candidate.IsResolved);
+        var battle = state!.ActiveBattles.FirstOrDefault(candidate =>
+            !candidate.IsResolved &&
+            (string.IsNullOrWhiteSpace(request.BattleId)
+                ? string.Equals(candidate.ZoneName, request.ZoneName, StringComparison.OrdinalIgnoreCase)
+                : candidate.Id == request.BattleId));
         if (state.Phase != TurnPhase.Combat || battle == null || battle.IsAmphibious)
         {
             return BadRequest("Stances are unavailable for this battle.");
@@ -804,12 +815,13 @@ public class CampaignController : ControllerBase
             return Forbid();
         }
 
-        if (!state.PendingStances.ContainsKey(battle.ZoneName))
+        var stanceKey = GetBattleStanceKey(battle);
+        if (!state.PendingStances.ContainsKey(stanceKey))
         {
-            state.PendingStances[battle.ZoneName] = new();
+            state.PendingStances[stanceKey] = new();
         }
 
-        state.PendingStances[battle.ZoneName][player.FactionName] = request.Stance;
+        state.PendingStances[stanceKey][player.FactionName] = request.Stance;
         campaign!.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
         await _context.SaveChangesAsync();
         await _hubContext.Clients.Group($"Campaign_{id}").SendAsync("GameUpdated");
@@ -868,7 +880,7 @@ public class CampaignController : ControllerBase
 
     private void CreateDeferredDestinationBattle(GameStateDto state, string destinationZoneName, IEnumerable<UnitManeuver> plans)
     {
-        if (state.ActiveBattles.Any(battle => string.Equals(battle.ZoneName, destinationZoneName, StringComparison.OrdinalIgnoreCase) && !battle.IsResolved))
+        if (state.ActiveBattles.Any(battle => !battle.IsSectorSwap && string.Equals(battle.ZoneName, destinationZoneName, StringComparison.OrdinalIgnoreCase) && !battle.IsResolved))
         {
             return;
         }
@@ -939,12 +951,23 @@ public class CampaignController : ControllerBase
         }
 
         var zonesByName = state.Zones.ToDictionary(zone => zone.Name, StringComparer.OrdinalIgnoreCase);
+        var unitsById = state.Units.ToDictionary(unit => unit.Id);
         foreach (var maneuver in maneuvers)
         {
             if (!zonesByName.TryGetValue(maneuver.OriginZoneName, out var origin) ||
                 !zonesByName.TryGetValue(maneuver.DestinationZoneName, out var destination))
             {
                 return "A movement references an unknown sector.";
+            }
+
+            if (maneuver.DigIn &&
+                (!unitsById.TryGetValue(maneuver.UnitId, out var unit) ||
+                 !string.Equals(origin.Name, unit.CurrentZoneName, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(origin.Name, destination.Name, StringComparison.OrdinalIgnoreCase) ||
+                 !string.IsNullOrWhiteSpace(maneuver.IntermediateZoneName) ||
+                 maneuver.IsMovementOrder))
+            {
+                return "A unit can dig in only instead of moving from its current sector.";
             }
 
             /* Movement range and ownership restrictions are temporarily disabled.
@@ -1006,6 +1029,18 @@ public class CampaignController : ControllerBase
                 continue;
             }
 
+            if (plan.DigIn)
+            {
+                unit.IsDugIn = true;
+                continue;
+            }
+
+            if (plan.IsMovementOrder ||
+                !string.Equals(plan.OriginZoneName, plan.DestinationZoneName, StringComparison.OrdinalIgnoreCase))
+            {
+                unit.IsDugIn = false;
+            }
+
             unit.X = plan.TargetX;
             unit.Y = plan.TargetY;
             unit.CurrentZoneName = plan.DestinationZoneName;
@@ -1017,7 +1052,7 @@ public class CampaignController : ControllerBase
         ReconcilePendingUncontestedColors(state);
         state.MovementDrafts.Clear();
         state.ConfirmedMovementFactions.Clear();
-        state.ColoringCompletesRound = false;
+        state.ColoringCompletesRound = wasPostCombatMovement;
 
         if (state.ActiveBattles.Any())
         {
@@ -1028,7 +1063,6 @@ public class CampaignController : ControllerBase
         state.PendingManeuvers.Clear();
         if (state.PendingUncontestedColors.Count > 0)
         {
-            state.ColoringCompletesRound = wasPostCombatMovement;
             state.Phase = TurnPhase.Coloring;
             return;
         }
@@ -1097,8 +1131,68 @@ public class CampaignController : ControllerBase
             result.Add(CreateBattle(destinationGroup.Key, state.TurnNumber, factions, participantIds, []));
         }
 
+        result.AddRange(CreateSectorSwapBattles(state, plans, unitById));
         return result;
     }
+
+    private static List<ActiveBattleApiDto> CreateSectorSwapBattles(
+        GameStateDto state, List<UnitManeuver> plans, Dictionary<string, UnitApiDto> unitById)
+    {
+        var battles = new List<ActiveBattleApiDto>();
+        var zones = state.Zones.OrderBy(zone => zone.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+        for (var first = 0; first < zones.Count; first++)
+        {
+            for (var second = first + 1; second < zones.Count; second++)
+            {
+                var zoneA = zones[first].Name;
+                var zoneB = zones[second].Name;
+                if (!AreAdjacent(state, zoneA, zoneB))
+                {
+                    continue;
+                }
+
+                var fromAToB = plans.Where(plan =>
+                    string.Equals(plan.OriginZoneName, zoneA, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(plan.DestinationZoneName, zoneB, StringComparison.OrdinalIgnoreCase)).ToList();
+                var fromBToA = plans.Where(plan =>
+                    string.Equals(plan.OriginZoneName, zoneB, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(plan.DestinationZoneName, zoneA, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (fromAToB.Count == 0 || fromBToA.Count == 0)
+                {
+                    continue;
+                }
+
+                var crossingIds = fromAToB.Select(plan => plan.UnitId)
+                    .Concat(fromBToA.Select(plan => plan.UnitId))
+                    .Distinct()
+                    .ToList();
+                var factions = crossingIds.Where(unitById.ContainsKey)
+                    .Select(id => unitById[id].FactionName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (factions.Count < 2)
+                {
+                    continue;
+                }
+
+                var battle = CreateBattle($"{zoneA} - {zoneB}", state.TurnNumber, factions, crossingIds, []);
+                battle.IsSectorSwap = true;
+                battle.SwapZoneA = zoneA;
+                battle.SwapZoneB = zoneB;
+                battles.Add(battle);
+            }
+        }
+
+        return battles;
+    }
+
+    private static bool AreAdjacent(GameStateDto state, string zoneA, string zoneB) =>
+        state.AdjacencyGraph.Any(entry =>
+            (string.Equals(entry.Key, zoneA, StringComparison.OrdinalIgnoreCase) &&
+             entry.Value.Contains(zoneB, StringComparer.OrdinalIgnoreCase)) ||
+            (string.Equals(entry.Key, zoneB, StringComparison.OrdinalIgnoreCase) &&
+             entry.Value.Contains(zoneA, StringComparer.OrdinalIgnoreCase)));
 
     private static List<UnitManeuver> BuildProjectedManeuvers(GameStateDto state, IEnumerable<UnitManeuver> submittedManeuvers)
     {
@@ -1132,17 +1226,28 @@ public class CampaignController : ControllerBase
         InterceptedUnitIds = interceptedUnitIds.Distinct().ToList()
     };
 
+    private static string GetBattleStanceKey(ActiveBattleApiDto battle) =>
+        battle.IsSectorSwap ? battle.Id : battle.ZoneName;
+
     private static void QueueUncontestedColors(GameStateDto state, IEnumerable<UnitManeuver> plans)
     {
         var unitsById = state.Units.ToDictionary(unit => unit.Id);
+        var swapZones = state.ActiveBattles.Where(battle => battle.IsSectorSwap)
+            .SelectMany(battle => new[] { battle.SwapZoneA, battle.SwapZoneB })
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var group in plans.GroupBy(plan => plan.DestinationZoneName, StringComparer.OrdinalIgnoreCase))
         {
+            if (swapZones.Contains(group.Key))
+            {
+                continue;
+            }
+
             if (!group.Any(plan => !string.Equals(plan.OriginZoneName, plan.DestinationZoneName, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
 
-            if (state.ActiveBattles.Any(battle => string.Equals(battle.ZoneName, group.Key, StringComparison.OrdinalIgnoreCase)))
+            if (state.ActiveBattles.Any(battle => !battle.IsSectorSwap && string.Equals(battle.ZoneName, group.Key, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
@@ -1167,16 +1272,19 @@ public class CampaignController : ControllerBase
 
     private static void ReconcilePendingUncontestedColors(GameStateDto state)
     {
+        var swapZones = state.ActiveBattles.Where(battle => battle.IsSectorSwap)
+            .SelectMany(battle => new[] { battle.SwapZoneA, battle.SwapZoneB })
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var pending in state.PendingUncontestedColors.ToList())
         {
             var zone = state.Zones.FirstOrDefault(candidate => string.Equals(candidate.Name, pending.Key, StringComparison.OrdinalIgnoreCase));
             var occupyingFactions = state.Units
                 .Where(unit => string.Equals(unit.CurrentZoneName, pending.Key, StringComparison.OrdinalIgnoreCase))
                 .Select(unit => unit.FactionName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            if (zone == null || occupyingFactions.Count != 1 ||
+            if (swapZones.Contains(pending.Key) || zone == null || occupyingFactions.Count != 1 ||
                 !string.Equals(occupyingFactions[0], pending.Value, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(zone.FactionName, pending.Value, StringComparison.OrdinalIgnoreCase) ||
-                state.ActiveBattles.Any(battle => string.Equals(battle.ZoneName, pending.Key, StringComparison.OrdinalIgnoreCase)))
+                state.ActiveBattles.Any(battle => !battle.IsSectorSwap && string.Equals(battle.ZoneName, pending.Key, StringComparison.OrdinalIgnoreCase)))
             {
                 state.PendingUncontestedColors.Remove(pending.Key);
             }
@@ -1207,6 +1315,7 @@ public class CampaignController : ControllerBase
     {
         state.TurnNumber++;
         state.Phase = TurnPhase.Moving;
+        state.ColoringCompletesRound = false;
         state.ActiveBattles.Clear();
         state.PendingStances.Clear();
     }

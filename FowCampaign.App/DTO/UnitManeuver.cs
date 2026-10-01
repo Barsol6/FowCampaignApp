@@ -8,4 +8,6 @@ public class UnitManeuver
     public string OriginZoneName { get; set; } = string.Empty;
     public string IntermediateZoneName { get; set; } = string.Empty;
     public string DestinationZoneName { get; set; } = string.Empty;
+    public bool DigIn { get; set; }
+    public bool IsMovementOrder { get; set; }
 }

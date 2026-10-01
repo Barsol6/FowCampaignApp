@@ -6,4 +6,5 @@ public class ZoneSeedAppDto
     public double Y { get; set; }
     public string FactionName { get; set; }
     public string Name { get; set; }
+    public int Points { get; set; }
 }

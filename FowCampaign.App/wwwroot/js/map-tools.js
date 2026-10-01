@@ -5,6 +5,7 @@
     originalImageData: null,
     zoneLookup: null,
     zoneLookupNames: [],
+    zoneLookupPoints: [],
     zoneLookupSeeds: [],
 
     initMap: (canvasId, imageSrc) =>
@@ -25,6 +26,7 @@
             {
                 window.mapTools.zoneLookup = null;
                 window.mapTools.zoneLookupNames = [];
+                window.mapTools.zoneLookupPoints = [];
                 window.mapTools.zoneLookupSeeds = [];
                 canvas.width = img.width;
                 canvas.height = img.height;
@@ -362,6 +364,7 @@
 
         window.mapTools.zoneLookup = lookup;
         window.mapTools.zoneLookupNames = zones.map(zone => zone.name);
+        window.mapTools.zoneLookupPoints = zones.map(zone => zone.points ?? 0);
         window.mapTools.zoneLookupSeeds = zones.map(zone => ({x: zone.x, y: zone.y}));
     },
 
@@ -536,7 +539,12 @@
         {
             return null;
         }
-        return {name: window.mapTools.zoneLookupNames[zoneId], x: clientX - wrapperRect.left, y: clientY - wrapperRect.top};
+        return {
+            name: window.mapTools.zoneLookupNames[zoneId],
+            points: window.mapTools.zoneLookupPoints[zoneId],
+            x: clientX - wrapperRect.left,
+            y: clientY - wrapperRect.top
+        };
     },
 
     calculateAdjacency: (zones, borderThickness = 15) =>

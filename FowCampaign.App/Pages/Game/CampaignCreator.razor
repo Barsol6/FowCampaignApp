@@ -141,7 +141,7 @@
                         <canvas id="mapCanvas" class="campaign-map-canvas"></canvas>
                         @if (_hoveredRegion != null)
                         {
-                            <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(System.Globalization.CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name</div>
+                            <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(System.Globalization.CultureInfo.InvariantCulture))px; ">@_hoveredRegion.Name @_hoveredRegion.Points points</div>
                         }
                         @foreach (var unit in _deployedUnits)
                         {
@@ -272,9 +272,19 @@
                        class="sector-name-modal-input"
                        placeholder="SECTOR NAME..."
                        aria-label="Sector name"/>
+                <input type="number" min="0" step="1"
+                       @bind="_pendingSectorPoints"
+                       @bind:event="oninput"
+                       class="sector-name-modal-input"
+                       placeholder="SECTOR POINTS..."
+                       aria-label="Sector points"/>
+                @if (!string.IsNullOrWhiteSpace(_pendingSectorPoints) && !TryGetSectorPoints(out _))
+                {
+                    <div class="action-validation-message">Enter a non-negative whole number of points.</div>
+                }
                 <div class="sector-name-modal-actions">
                     <button class="sector-name-modal-cancel" @onclick="CancelSectorNaming">CANCEL</button>
-                    <button class="sector-name-modal-confirm" @onclick="ConfirmSectorNaming" disabled="@string.IsNullOrWhiteSpace(_pendingSectorName)">CONFIRM &amp; PAINT</button>
+                    <button class="sector-name-modal-confirm" @onclick="ConfirmSectorNaming" disabled="@(!CanConfirmSector)">CONFIRM &amp; PAINT</button>
                 </div>
             </section>
         </div>
@@ -306,6 +316,8 @@
     private string _pendingSectorName = string.Empty;
     private string _factionName = string.Empty;
     private string _factionColor = "#000000";
+    private string _pendingSectorPoints = string.Empty;
+    private bool CanConfirmSector => !string.IsNullOrWhiteSpace(_pendingSectorName) && TryGetSectorPoints(out _);
     private bool _shouldRenderMap;
     private bool _mapInitialized;
     private bool _isSectorNameModalOpen;
@@ -419,6 +431,7 @@
             _pendingSectorVisualX = e.OffsetX;
             _pendingSectorVisualY = e.OffsetY;
             _pendingSectorName = string.Empty;
+            _pendingSectorPoints = string.Empty;
             _isSectorNameModalOpen = true;
         }
     }
@@ -455,7 +468,7 @@
 
     private async Task ConfirmSectorNaming()
     {
-        if (_selectedFactionApp == null || string.IsNullOrWhiteSpace(_pendingSectorName))
+        if (_selectedFactionApp == null || string.IsNullOrWhiteSpace(_pendingSectorName) || !TryGetSectorPoints(out var points))
         {
             return;
         }
@@ -479,6 +492,7 @@
                 nearbyExistingZone.X = realCoords.X;
                 nearbyExistingZone.Y = realCoords.Y;
                 nearbyExistingZone.Name = _pendingSectorName.Trim();
+                nearbyExistingZone.Points = points;
             }
             else
             {
@@ -487,7 +501,8 @@
                     X = realCoords.X,
                     Y = realCoords.Y,
                     FactionName = _selectedFactionApp.Name,
-                    Name = _pendingSectorName.Trim()
+                    Name = _pendingSectorName.Trim(),
+                    Points = points
                 });
             }
             await JsRuntime.InvokeVoidAsync("mapTools.buildZoneLookup", _recordedZones);
@@ -497,9 +512,13 @@
         CancelSectorNaming();
     }
 
+    private bool TryGetSectorPoints(out int points) =>
+        int.TryParse(_pendingSectorPoints, out points) && points >= 0;
+
     private void CancelSectorNaming()
     {
         _pendingSectorName = string.Empty;
+        _pendingSectorPoints = string.Empty;
         _isSectorNameModalOpen = false;
     }
 
@@ -591,7 +610,8 @@
         X = zone.X,
         Y = zone.Y,
         FactionName = zone.FactionName,
-        Name = zone.Name
+        Name = zone.Name,
+        Points = zone.Points,
     };
 
     private void ZoomIn()
@@ -774,6 +794,7 @@
     public class HoveredRegion
     {
         public string Name { get; set; } = string.Empty;
+        public int Points { get; set; }
         public double X { get; set; }
         public double Y { get; set; }
     }
