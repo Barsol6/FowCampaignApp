@@ -8,6 +8,7 @@ public class UnitAppDto
     public double X { get; set; }
     public double Y { get; set; }
     public string CurrentZoneName { get; set; } = string.Empty;
+    public bool IsDugIn { get; set; }
     public double Scale { get; set; } = 1.0;
 
     public string ExcelFileName { get; set; } = string.Empty;

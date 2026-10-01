@@ -951,12 +951,23 @@ public class CampaignController : ControllerBase
         }
 
         var zonesByName = state.Zones.ToDictionary(zone => zone.Name, StringComparer.OrdinalIgnoreCase);
+        var unitsById = state.Units.ToDictionary(unit => unit.Id);
         foreach (var maneuver in maneuvers)
         {
             if (!zonesByName.TryGetValue(maneuver.OriginZoneName, out var origin) ||
                 !zonesByName.TryGetValue(maneuver.DestinationZoneName, out var destination))
             {
                 return "A movement references an unknown sector.";
+            }
+
+            if (maneuver.DigIn &&
+                (!unitsById.TryGetValue(maneuver.UnitId, out var unit) ||
+                 !string.Equals(origin.Name, unit.CurrentZoneName, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(origin.Name, destination.Name, StringComparison.OrdinalIgnoreCase) ||
+                 !string.IsNullOrWhiteSpace(maneuver.IntermediateZoneName) ||
+                 maneuver.IsMovementOrder))
+            {
+                return "A unit can dig in only instead of moving from its current sector.";
             }
 
             /* Movement range and ownership restrictions are temporarily disabled.
@@ -1016,6 +1027,18 @@ public class CampaignController : ControllerBase
             if (!unitById.TryGetValue(plan.UnitId, out var unit))
             {
                 continue;
+            }
+
+            if (plan.DigIn)
+            {
+                unit.IsDugIn = true;
+                continue;
+            }
+
+            if (plan.IsMovementOrder ||
+                !string.Equals(plan.OriginZoneName, plan.DestinationZoneName, StringComparison.OrdinalIgnoreCase))
+            {
+                unit.IsDugIn = false;
             }
 
             unit.X = plan.TargetX;
