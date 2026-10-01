@@ -1041,6 +1041,19 @@ public class CampaignController : ControllerBase
                 unit.IsDugIn = false;
             }
 
+            if (!string.Equals(plan.OriginZoneName, plan.DestinationZoneName, StringComparison.OrdinalIgnoreCase))
+            {
+                state.RoundMovementArrows.Add(new MovementArrowApiDto
+                {
+                    UnitId = unit.Id,
+                    FactionName = unit.FactionName,
+                    StartX = unit.X,
+                    StartY = unit.Y,
+                    EndX = plan.TargetX,
+                    EndY = plan.TargetY
+                });
+            }
+
             unit.X = plan.TargetX;
             unit.Y = plan.TargetY;
             unit.CurrentZoneName = plan.DestinationZoneName;
@@ -1318,6 +1331,7 @@ public class CampaignController : ControllerBase
         state.ColoringCompletesRound = false;
         state.ActiveBattles.Clear();
         state.PendingStances.Clear();
+        state.RoundMovementArrows.Clear();
     }
 
     private string SerializeStateForFaction(GameStateDto state, string factionName)

@@ -691,6 +691,26 @@ canvas {
     pointer-events: none;
 }
 
+.game-movement-arrows {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.game-movement-arrow {
+    fill: none;
+    stroke-width: 4;
+    stroke-linecap: round;
+    opacity: 0.9;
+}
+
+.game-movement-arrow-draft {
+    stroke-dasharray: 10 7;
+    opacity: 0.7;
+}
+
 .region-tooltip {
     position: absolute;
     z-index: 110;

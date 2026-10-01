@@ -68,6 +68,36 @@
 
                         <canvas id="gameCanvas" class="game-canvas game-map-canvas"></canvas>
 
+                        @if (_stateApp != null && _mapRealWidth > 1 && _mapRealHeight > 1)
+                        {
+                            <svg class="game-movement-arrows"
+                                 viewBox="0 0 @(_mapRealWidth.ToString(CultureInfo.InvariantCulture)) @(_mapRealHeight.ToString(CultureInfo.InvariantCulture))"
+                                 preserveAspectRatio="none" aria-hidden="true">
+                                <defs>
+                                    @for (var factionIndex = 0; factionIndex < _stateApp.Factions.Count; factionIndex++)
+                                    {
+                                        var faction = _stateApp.Factions[factionIndex];
+                                        <marker id="movement-arrowhead-@factionIndex" viewBox="0 0 12 12"
+                                                refX="12" refY="6" markerWidth="12" markerHeight="12"
+                                                markerUnits="userSpaceOnUse" orient="auto">
+                                            <path d="M 0 0 L 12 6 L 0 12 Z" fill="@faction.Color" />
+                                        </marker>
+                                    }
+                                </defs>
+                                @foreach (var arrow in GetVisibleMovementArrows())
+                                {
+                                    var segment = GetArrowSegment(arrow);
+                                    var markerUrl = GetArrowMarkerUrl(arrow.FactionName);
+                                    <line class="game-movement-arrow @(arrow.IsDraft ? "game-movement-arrow-draft" : "")"
+                                          x1="@segment.StartX.ToString(CultureInfo.InvariantCulture)"
+                                          y1="@segment.StartY.ToString(CultureInfo.InvariantCulture)"
+                                          x2="@segment.EndX.ToString(CultureInfo.InvariantCulture)"
+                                          y2="@segment.EndY.ToString(CultureInfo.InvariantCulture)"
+                                          stroke="@GetFactionColor(arrow.FactionName)" marker-end="@markerUrl" />
+                                }
+                            </svg>
+                        }
+
                         @if (_hoveredRegion != null)
                         {
                             <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name @_hoveredRegion.Points points</div>
@@ -965,6 +995,78 @@
     }
 
     private string GetFactionColor(string factionName) => _stateApp?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
+
+    private string GetArrowMarkerUrl(string factionName)
+    {
+        var index = _stateApp?.Factions.FindIndex(faction =>
+            string.Equals(faction.Name, factionName, StringComparison.OrdinalIgnoreCase)) ?? -1;
+        return index < 0 ? string.Empty : $"url(#movement-arrowhead-{index})";
+    }
+
+    private List<MovementArrowAppDto> GetVisibleMovementArrows()
+    {
+        if (_stateApp == null)
+        {
+            return [];
+        }
+
+        var arrows = new List<MovementArrowAppDto>(_stateApp.RoundMovementArrows);
+        if (_gameDataApp == null || _stateApp.Phase is not (TurnPhase.Moving or TurnPhase.PostCombatMoving))
+        {
+            return arrows;
+        }
+
+        var orders = IsMyFactionMovementConfirmed
+            ? _stateApp.PendingManeuvers.TryGetValue(_gameDataApp.MyFactionName, out var confirmedOrders)
+                ? confirmedOrders
+                : []
+            : _trialManeuvers.Values.ToList();
+
+        foreach (var order in orders)
+        {
+            if (order.DigIn || string.Equals(order.OriginZoneName, order.DestinationZoneName, StringComparison.OrdinalIgnoreCase) ||
+                !_unitOriginPositions.TryGetValue(order.UnitId, out var origin))
+            {
+                continue;
+            }
+
+            var unit = _stateApp.Units.FirstOrDefault(candidate => candidate.Id == order.UnitId);
+            if (unit == null || !string.Equals(unit.FactionName, _gameDataApp.MyFactionName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            arrows.Add(new MovementArrowAppDto
+            {
+                UnitId = unit.Id,
+                FactionName = unit.FactionName,
+                StartX = origin.X,
+                StartY = origin.Y,
+                EndX = order.TargetX,
+                EndY = order.TargetY,
+                IsDraft = true
+            });
+        }
+
+        return arrows;
+    }
+
+    private static (double StartX, double StartY, double EndX, double EndY) GetArrowSegment(MovementArrowAppDto arrow)
+    {
+        var dx = arrow.EndX - arrow.StartX;
+        var dy = arrow.EndY - arrow.StartY;
+        var distance = Math.Sqrt(dx * dx + dy * dy);
+        if (distance < 1)
+        {
+            return (arrow.StartX, arrow.StartY, arrow.EndX, arrow.EndY);
+        }
+
+        var offset = Math.Min(18, distance / 4);
+        var offsetX = dx / distance * offset;
+        var offsetY = dy / distance * offset;
+        return (arrow.StartX + offsetX, arrow.StartY + offsetY,
+            arrow.EndX - offsetX, arrow.EndY - offsetY);
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

@@ -12,6 +12,7 @@ public class GameStateAppDto
     public TurnPhase Phase { get; set; } = TurnPhase.Moving;
     public Dictionary<string, List<UnitManeuver>> PendingManeuvers { get; set; } = new();
     public Dictionary<string, List<UnitManeuver>> MovementDrafts { get; set; } = new();
+    public List<MovementArrowAppDto> RoundMovementArrows { get; set; } = new();
     public List<string> ConfirmedMovementFactions { get; set; } = new();
     public Dictionary<string, string> PendingUncontestedColors { get; set; } = new();
     public bool ColoringCompletesRound { get; set; }
