@@ -68,6 +68,41 @@
 
                         <canvas id="gameCanvas" class="game-canvas game-map-canvas"></canvas>
 
+                        @if (_stateApp != null && _mapRealWidth > 1 && _mapRealHeight > 1)
+                        {
+                            <svg class="game-movement-arrows"
+                                 viewBox="0 0 @(_mapRealWidth.ToString(CultureInfo.InvariantCulture)) @(_mapRealHeight.ToString(CultureInfo.InvariantCulture))"
+                                 preserveAspectRatio="none" aria-hidden="true">
+                                <defs>
+                                    @for (var factionIndex = 0; factionIndex < _stateApp.Factions.Count; factionIndex++)
+                                    {
+                                        var faction = _stateApp.Factions[factionIndex];
+                                        <filter id="movement-arrow-color-@factionIndex" color-interpolation-filters="sRGB">
+                                            <feComponentTransfer>
+                                                <feFuncR type="linear" slope="@GetArrowColorSlope(faction.Color, 0)" />
+                                                <feFuncG type="linear" slope="@GetArrowColorSlope(faction.Color, 1)" />
+                                                <feFuncB type="linear" slope="@GetArrowColorSlope(faction.Color, 2)" />
+                                            </feComponentTransfer>
+                                        </filter>
+                                    }
+                                </defs>
+                                @foreach (var arrow in GetVisibleMovementArrows())
+                                {
+                                    var placement = GetArrowImagePlacement(arrow);
+                                    <g class="game-movement-arrow @(arrow.IsDraft ? "game-movement-arrow-draft" : "")"
+                                       transform="@GetArrowImageTransform(placement)">
+                                        <image href="assets/strzałkadofow.png"
+                                               x="@(-placement.Width / 2).ToString(CultureInfo.InvariantCulture)"
+                                               y="0"
+                                               width="@placement.Width.ToString(CultureInfo.InvariantCulture)"
+                                               height="@placement.Length.ToString(CultureInfo.InvariantCulture)"
+                                               preserveAspectRatio="none"
+                                               filter="@GetArrowColorFilterUrl(arrow.FactionName)" />
+                                    </g>
+                                }
+                            </svg>
+                        }
+
                         @if (_hoveredRegion != null)
                         {
                             <div class="region-tooltip" style="left: @(_hoveredRegion.X.ToString(CultureInfo.InvariantCulture))px; top: @(_hoveredRegion.Y.ToString(CultureInfo.InvariantCulture))px;">@_hoveredRegion.Name @_hoveredRegion.Points points</div>
@@ -965,6 +1000,95 @@
     }
 
     private string GetFactionColor(string factionName) => _stateApp?.Factions.FirstOrDefault(f => f.Name == factionName)?.Color ?? "#000000";
+
+    private string GetArrowColorFilterUrl(string factionName)
+    {
+        var index = _stateApp?.Factions.FindIndex(faction =>
+            string.Equals(faction.Name, factionName, StringComparison.OrdinalIgnoreCase)) ?? -1;
+        return index < 0 ? string.Empty : $"url(#movement-arrow-color-{index})";
+    }
+
+    private static string GetArrowColorSlope(string color, int channel)
+    {
+        if (color.Length != 7 || color[0] != '#' ||
+            !byte.TryParse(color.AsSpan(channel * 2 + 1, 2), NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture, out var component))
+        {
+            return "1";
+        }
+
+        return (0.4 + 0.6 * component / 255.0).ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    private List<MovementArrowAppDto> GetVisibleMovementArrows()
+    {
+        if (_stateApp == null)
+        {
+            return [];
+        }
+
+        var arrows = new List<MovementArrowAppDto>(_stateApp.RoundMovementArrows);
+        if (_gameDataApp == null || _stateApp.Phase is not (TurnPhase.Moving or TurnPhase.PostCombatMoving))
+        {
+            return arrows;
+        }
+
+        var orders = IsMyFactionMovementConfirmed
+            ? _stateApp.PendingManeuvers.TryGetValue(_gameDataApp.MyFactionName, out var confirmedOrders)
+                ? confirmedOrders
+                : []
+            : _trialManeuvers.Values.ToList();
+
+        foreach (var order in orders)
+        {
+            if (order.DigIn || string.Equals(order.OriginZoneName, order.DestinationZoneName, StringComparison.OrdinalIgnoreCase) ||
+                !_unitOriginPositions.TryGetValue(order.UnitId, out var origin))
+            {
+                continue;
+            }
+
+            var unit = _stateApp.Units.FirstOrDefault(candidate => candidate.Id == order.UnitId);
+            if (unit == null || !string.Equals(unit.FactionName, _gameDataApp.MyFactionName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            arrows.Add(new MovementArrowAppDto
+            {
+                UnitId = unit.Id,
+                FactionName = unit.FactionName,
+                StartX = origin.X,
+                StartY = origin.Y,
+                EndX = order.TargetX,
+                EndY = order.TargetY,
+                IsDraft = true
+            });
+        }
+
+        return arrows;
+    }
+
+    private (double TipX, double TipY, double Width, double Length, double Angle) GetArrowImagePlacement(MovementArrowAppDto arrow)
+    {
+        var dx = arrow.EndX - arrow.StartX;
+        var dy = arrow.EndY - arrow.StartY;
+        var distance = Math.Sqrt(dx * dx + dy * dy);
+        if (distance < 1)
+        {
+            return (arrow.EndX, arrow.EndY, 0, 0, 0);
+        }
+
+        var offset = Math.Min(Math.Clamp(_mapRealWidth * 0.025, 18, 60), distance / 4);
+        var width = Math.Min(Math.Clamp(_mapRealWidth * 0.05, 52, 120), distance * 0.75);
+        var angle = Math.Atan2(dy, dx) * 180 / Math.PI + 90;
+        return (arrow.EndX - dx / distance * offset,
+            arrow.EndY - dy / distance * offset,
+            width, distance - 2 * offset, angle);
+    }
+
+    private static string GetArrowImageTransform((double TipX, double TipY, double Width, double Length, double Angle) placement) =>
+        $"translate({placement.TipX.ToString(CultureInfo.InvariantCulture)} {placement.TipY.ToString(CultureInfo.InvariantCulture)}) " +
+        $"rotate({placement.Angle.ToString(CultureInfo.InvariantCulture)})";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
