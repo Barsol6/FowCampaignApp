@@ -21,6 +21,7 @@ public class GameStateDto
     public Dictionary<string, List<string>> AdjacencyGraph { get; set; } = new();
     public List<BattleResultApiDto> BattleResults { get; set; } = new();
     public List<ActiveBattleApiDto> ActiveBattles { get; set; } = new();
+    public List<PendingRetreatApiDto> PendingRetreats { get; set; } = new();
     public Dictionary<string, Dictionary<string, BattleStance>> PendingStances { get; set; } = new();
 }
 
@@ -29,5 +30,6 @@ public enum TurnPhase
     Moving,
     Combat,
     Coloring,
-    PostCombatMoving
+    PostCombatMoving,
+    RetreatMoving
 }
