@@ -8,6 +8,8 @@ public class ActiveBattleAppDto
     public List<string> Factions { get; set; } = new();
     public List<string> UnitIds { get; set; } = new();
     public List<string> InterceptedUnitIds { get; set; } = new();
+    public bool IsRetreatBattle { get; set; }
+    public List<string> RetreatingUnitIds { get; set; } = new();
     public bool IsSectorSwap { get; set; }
     public string SwapZoneA { get; set; } = string.Empty;
     public string SwapZoneB { get; set; } = string.Empty;

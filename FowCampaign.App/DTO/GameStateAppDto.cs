@@ -18,6 +18,7 @@ public class GameStateAppDto
     public bool ColoringCompletesRound { get; set; }
     public List<BattleResultAppDto> BattleResults { get; set; } = new();
     public List<ActiveBattleAppDto> ActiveBattles { get; set; } = new();
+    public List<PendingRetreatAppDto> PendingRetreats { get; set; } = new();
     public Dictionary<string, List<string>> AdjacencyGraph { get; set; } = new();
     public Dictionary<string, Dictionary<string, BattleStance>> PendingStances { get; set; } = new();
 }
@@ -27,5 +28,6 @@ public enum TurnPhase
     Moving,
     Combat,
     Coloring,
-    PostCombatMoving
+    PostCombatMoving,
+    RetreatMoving
 }

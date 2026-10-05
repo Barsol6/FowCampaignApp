@@ -608,6 +608,11 @@ public class CampaignController : ControllerBase
             return Forbid();
         }
 
+        if (battle.IsRetreatBattle && request.IsAmphibious)
+        {
+            return BadRequest("A retreat battle cannot be configured as an amphibious landing.");
+        }
+
         if (request.IsAmphibious && (!battle.Factions.Contains(request.AttackerFaction) || !battle.Factions.Contains(request.DefenderFaction) || request.AttackerFaction == request.DefenderFaction))
         {
             return BadRequest("Select opposing attacker and defender factions.");
@@ -664,6 +669,11 @@ public class CampaignController : ControllerBase
             : state.PendingStances[stanceKey];
         request.WinnerFactions = CalculateWinnerFactions(request.MajorPoints, request.MinorPoints, battle.Factions);
 
+        if (battle.IsRetreatBattle && request.WinnerFactions.Count != 1)
+        {
+            return BadRequest("A retreat battle must have one winning faction.");
+        }
+
         foreach (var unitFile in request.UpdatedUnitFiles)
         {
             var unit = state.Units.FirstOrDefault(candidate => candidate.Id == unitFile.Key);
@@ -677,13 +687,14 @@ public class CampaignController : ControllerBase
         battle.WinnerFactions = request.WinnerFactions;
         battle.ScenarioName = request.ScenarioName;
         battle.CommanderUsername = request.CommanderUsername;
-        if (battle.IsSectorSwap)
+        if (battle.IsSectorSwap || battle.IsRetreatBattle)
         {
             battle.ColoringResolved = true;
             battle.ColoringSkipped = true;
         }
         state.BattleResults.Add(request);
         state.PendingStances.Remove(stanceKey);
+        ResolveBattleRetreats(state, battle);
         ContinueInterceptedUnits(state, battle);
         ReconcilePendingUncontestedColors(state);
 
@@ -695,13 +706,88 @@ public class CampaignController : ControllerBase
             ResultJson = JsonSerializer.Serialize(request, _jsonOptions)
         });
 
-        if (state.ActiveBattles.All(candidate => candidate.IsResolved))
+        if (state.PendingRetreats.Count > 0)
+        {
+            state.Phase = TurnPhase.RetreatMoving;
+        }
+        else if (state.ActiveBattles.All(candidate => candidate.IsResolved))
         {
             state.Phase = TurnPhase.Coloring;
             AdvanceAfterColoring(state);
         }
 
         campaign.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
+        await _context.SaveChangesAsync();
+        await _hubContext.Clients.Group($"Campaign_{id}").SendAsync("GameUpdated");
+        return Ok();
+    }
+
+    [HttpPost("{id}/retreat/move")]
+    public async Task<IActionResult> MoveRetreat(int id, [FromBody] MoveRetreatApiDto request)
+    {
+        var (campaign, player, state, error) = await LoadCampaignStateAsync(id);
+        if (error != null)
+        {
+            return error;
+        }
+
+        if (state!.Phase != TurnPhase.RetreatMoving)
+        {
+            return BadRequest("No army is awaiting a retreat move.");
+        }
+
+        var unit = state.Units.FirstOrDefault(candidate => candidate.Id == request.UnitId);
+        if (unit == null || !string.Equals(unit.FactionName, player!.FactionName, StringComparison.OrdinalIgnoreCase))
+        {
+            return Forbid();
+        }
+
+        var pending = state.PendingRetreats.FirstOrDefault(candidate => candidate.UnitId == unit.Id);
+        if (pending == null || !pending.AllowedZoneNames.Contains(request.DestinationZoneName, StringComparer.OrdinalIgnoreCase) ||
+            !double.IsFinite(request.TargetX) || !double.IsFinite(request.TargetY))
+        {
+            return BadRequest("Move this army to one of its permitted retreat sectors.");
+        }
+
+        var destination = state.Zones.First(candidate =>
+            string.Equals(candidate.Name, request.DestinationZoneName, StringComparison.OrdinalIgnoreCase));
+        state.RoundMovementArrows.Add(new MovementArrowApiDto
+        {
+            UnitId = unit.Id,
+            FactionName = unit.FactionName,
+            StartX = unit.X,
+            StartY = unit.Y,
+            EndX = request.TargetX,
+            EndY = request.TargetY
+        });
+        unit.CurrentZoneName = destination.Name;
+        unit.X = request.TargetX;
+        unit.Y = request.TargetY;
+        unit.IsDugIn = false;
+        state.PendingRetreats.Remove(pending);
+
+        CreateRetreatBattleIfOccupied(state, unit);
+        if (!state.ActiveBattles.Any(battle => !battle.IsSectorSwap && !battle.IsResolved &&
+                string.Equals(battle.ZoneName, destination.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            QueueUncontestedColor(state, destination.Name, unit.FactionName);
+        }
+        ReconcilePendingUncontestedColors(state);
+
+        if (state.PendingRetreats.Count == 0)
+        {
+            if (state.ActiveBattles.Any(battle => !battle.IsResolved))
+            {
+                state.Phase = TurnPhase.Combat;
+            }
+            else
+            {
+                state.Phase = TurnPhase.Coloring;
+                AdvanceAfterColoring(state);
+            }
+        }
+
+        campaign!.GameStateJson = JsonSerializer.Serialize(state, _jsonOptions);
         await _context.SaveChangesAsync();
         await _hubContext.Clients.Group($"Campaign_{id}").SendAsync("GameUpdated");
         return Ok();
@@ -815,6 +901,13 @@ public class CampaignController : ControllerBase
             return Forbid();
         }
 
+        if (battle.IsRetreatBattle && battle.RetreatingUnitIds.Any(id =>
+                state.Units.Any(unit => unit.Id == id && unit.FactionName == player.FactionName)) &&
+            request.Stance == BattleStance.Defend)
+        {
+            return BadRequest("A retreating army may choose assault or maneuver for this battle.");
+        }
+
         var stanceKey = GetBattleStanceKey(battle);
         if (!state.PendingStances.ContainsKey(stanceKey))
         {
@@ -840,6 +933,141 @@ public class CampaignController : ControllerBase
         var majorWinners = scores.Where(score => score.Major == highestMajor).ToList();
         var highestMinor = majorWinners.Max(score => score.Minor);
         return majorWinners.Where(score => score.Minor == highestMinor).Select(score => score.Faction).ToList();
+    }
+
+    private static string GetRetreatingFaction(GameStateDto state, ActiveBattleApiDto battle) =>
+        state.Units.First(unit => battle.RetreatingUnitIds.Contains(unit.Id)).FactionName;
+
+    private static List<string> GetRetreatDestinations(GameStateDto state, string fromZone, string factionName) =>
+        state.Zones.Where(zone =>
+                AreAdjacent(state, fromZone, zone.Name) &&
+                string.Equals(zone.FactionName, factionName, StringComparison.OrdinalIgnoreCase) &&
+                !state.Units.Any(unit =>
+                    string.Equals(unit.CurrentZoneName, zone.Name, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(unit.FactionName, factionName, StringComparison.OrdinalIgnoreCase)))
+            .Select(zone => zone.Name).ToList();
+
+    private static void QueueRetreat(GameStateDto state, UnitApiDto unit, List<string> destinations, bool mustReturnToOrigin)
+    {
+        state.PendingRetreats.RemoveAll(candidate => candidate.UnitId == unit.Id);
+        if (destinations.Count == 0)
+        {
+            state.Units.Remove(unit);
+            return;
+        }
+
+        state.PendingRetreats.Add(new PendingRetreatApiDto
+        {
+            UnitId = unit.Id,
+            AllowedZoneNames = destinations,
+            MustReturnToOrigin = mustReturnToOrigin
+        });
+    }
+
+    private static void ResolveBattleRetreats(GameStateDto state, ActiveBattleApiDto battle)
+    {
+        if (battle.IsSectorSwap || battle.WinnerFactions.Count != 1)
+        {
+            return;
+        }
+
+        var winner = battle.WinnerFactions[0];
+        if (battle.IsRetreatBattle)
+        {
+            var zone = state.Zones.First(candidate => string.Equals(candidate.Name, battle.ZoneName, StringComparison.OrdinalIgnoreCase));
+            zone.FactionName = winner;
+
+            var retreatingIds = battle.RetreatingUnitIds.ToHashSet();
+            if (string.Equals(winner, GetRetreatingFaction(state, battle), StringComparison.OrdinalIgnoreCase))
+            {
+                // The occupying army returns to the sector from which it captured this one.
+                foreach (var unit in state.Units.Where(unit => battle.UnitIds.Contains(unit.Id) && !retreatingIds.Contains(unit.Id)).ToList())
+                {
+                    QueueRetreatToOrigin(state, unit, battle.ZoneName);
+                }
+            }
+            else
+            {
+                var retreatingFaction = GetRetreatingFaction(state, battle);
+                foreach (var unit in state.Units.Where(unit => battle.UnitIds.Contains(unit.Id) &&
+                             string.Equals(unit.FactionName, retreatingFaction, StringComparison.OrdinalIgnoreCase)).ToList())
+                {
+                    QueueRetreat(state, unit, GetRetreatDestinations(state, battle.ZoneName, retreatingFaction), false);
+                }
+            }
+
+            return;
+        }
+
+        // Only armies that entered the attacked sector may withdraw to their departure sector.
+        foreach (var unit in state.Units.Where(unit => battle.UnitIds.Contains(unit.Id) &&
+                     !string.Equals(unit.FactionName, winner, StringComparison.OrdinalIgnoreCase) &&
+                     state.PendingManeuvers.Values.SelectMany(maneuvers => maneuvers).Any(plan =>
+                         plan.UnitId == unit.Id &&
+                         !string.Equals(plan.OriginZoneName, battle.ZoneName, StringComparison.OrdinalIgnoreCase))).ToList())
+        {
+            QueueRetreatToOrigin(state, unit, battle.ZoneName);
+        }
+    }
+
+    private static void QueueRetreatToOrigin(GameStateDto state, UnitApiDto unit, string battleZoneName)
+    {
+        var plan = state.PendingManeuvers.Values.SelectMany(maneuvers => maneuvers)
+            .FirstOrDefault(candidate => candidate.UnitId == unit.Id);
+        if (plan == null || string.Equals(plan.OriginZoneName, battleZoneName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        QueueRetreat(state, unit, [plan.OriginZoneName], true);
+    }
+
+    private static void CreateRetreatBattleIfOccupied(GameStateDto state, UnitApiDto unit)
+    {
+        var destinationName = unit.CurrentZoneName;
+        var occupants = state.Units.Where(candidate =>
+            string.Equals(candidate.CurrentZoneName, destinationName, StringComparison.OrdinalIgnoreCase)).ToList();
+        var opposing = occupants.Where(candidate =>
+            !string.Equals(candidate.FactionName, unit.FactionName, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (opposing.Count == 0)
+        {
+            return;
+        }
+
+        state.PendingUncontestedColors.Remove(destinationName);
+        foreach (var previous in state.ActiveBattles.Where(candidate =>
+                     candidate.IsResolved && !candidate.IsSectorSwap &&
+                     string.Equals(candidate.ZoneName, destinationName, StringComparison.OrdinalIgnoreCase)))
+        {
+            previous.ColoringResolved = true;
+            previous.ColoringSkipped = true;
+        }
+
+        var existing = state.ActiveBattles.FirstOrDefault(candidate =>
+            !candidate.IsSectorSwap && !candidate.IsResolved &&
+            string.Equals(candidate.ZoneName, destinationName, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+        {
+            if (!existing.IsRetreatBattle)
+            {
+                state.PendingStances.Remove(existing.ZoneName);
+                existing.IsRetreatBattle = true;
+            }
+
+            existing.UnitIds = occupants.Select(candidate => candidate.Id).ToList();
+            if (!existing.RetreatingUnitIds.Contains(unit.Id))
+            {
+                existing.RetreatingUnitIds.Add(unit.Id);
+            }
+            existing.Factions = occupants.Select(candidate => candidate.FactionName).Distinct().ToList();
+            return;
+        }
+
+        var retreatBattle = CreateBattle(destinationName, state.TurnNumber,
+            occupants.Select(candidate => candidate.FactionName), occupants.Select(candidate => candidate.Id), []);
+        retreatBattle.IsRetreatBattle = true;
+        retreatBattle.RetreatingUnitIds.Add(unit.Id);
+        state.ActiveBattles.Add(retreatBattle);
     }
 
     private void ContinueInterceptedUnits(GameStateDto state, ActiveBattleApiDto battle)
@@ -1240,7 +1468,7 @@ public class CampaignController : ControllerBase
     };
 
     private static string GetBattleStanceKey(ActiveBattleApiDto battle) =>
-        battle.IsSectorSwap ? battle.Id : battle.ZoneName;
+        battle.IsSectorSwap || battle.IsRetreatBattle ? battle.Id : battle.ZoneName;
 
     private static void QueueUncontestedColors(GameStateDto state, IEnumerable<UnitManeuver> plans)
     {
@@ -1330,6 +1558,7 @@ public class CampaignController : ControllerBase
         state.Phase = TurnPhase.Moving;
         state.ColoringCompletesRound = false;
         state.ActiveBattles.Clear();
+        state.PendingRetreats.Clear();
         state.PendingStances.Clear();
         state.RoundMovementArrows.Clear();
     }

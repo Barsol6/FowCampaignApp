@@ -127,7 +127,7 @@
                                 var def = _stateApp.UnitDefinitions.FirstOrDefault(d => d.Id == unit.DefinitionId);
                                 var isMyUnit = unit.FactionName == _gameDataApp.MyFactionName;
 
-                                var canGiveOrder = isMyUnit && !IsMyFactionMovementConfirmed && (_stateApp.Phase == TurnPhase.Moving || _stateApp.Phase == TurnPhase.PostCombatMoving);
+                                var canGiveOrder = CanGiveUnitOrder(unit);
                                 var isDigInOrder = _trialManeuvers.TryGetValue(unit.Id, out var plannedOrder) && plannedOrder.DigIn;
                                 var canDrag = canGiveOrder && !isDigInOrder;
 
@@ -160,7 +160,7 @@
                                 {
                                     <span class="map-unit-dug-in" style="@badgeStyle">DUG IN</span>
                                 }
-                                @if (_unitContextMenuId == unit.Id && canGiveOrder)
+                                @if (_unitContextMenuId == unit.Id && canGiveOrder && _stateApp.Phase != TurnPhase.RetreatMoving)
                                 {
                                     <div class="unit-context-menu" style="@menuStyle" role="menu" aria-label="Unit orders" @onclick:stopPropagation="true">
                                         <button type="button" role="menuitem" @onclick="() => SetUnitDigInAsync(unit, !isDigInOrder)">
@@ -249,13 +249,35 @@
                             }
                         </div>
                     }
+                    else if (_stateApp.Phase == TurnPhase.RetreatMoving)
+                    {
+                        <div class="status-box status-battle mb-10"><strong>STATUS:</strong> Retreat movement</div>
+                        @foreach (var retreat in _stateApp.PendingRetreats)
+                        {
+                            var retreatUnit = _stateApp.Units.FirstOrDefault(unit => unit.Id == retreat.UnitId);
+                            if (retreatUnit != null)
+                            {
+                                <div class="status-box status-battle mb-5">
+                                    <strong>@retreatUnit.FactionName</strong>: drag the army to @string.Join(" / ", retreat.AllowedZoneNames).
+                                    @if (retreat.MustReturnToOrigin)
+                                    {
+                                        <div>Return to the sector it attacked from.</div>
+                                    }
+                                </div>
+                            }
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_movementErrorMessage))
+                        {
+                            <div class="status-box status-battle mt-5">@_movementErrorMessage</div>
+                        }
+                    }
                     else if (_stateApp.Phase == TurnPhase.Combat)
                     {
                         <div class="status-box status-battle mb-10"><strong>STATUS:</strong> Combat Phase</div>
                         @foreach (var battle in _stateApp.ActiveBattles.Where(b => !b.IsResolved))
                         {
                             <div class="status-box status-battle mb-5">
-                                <strong>@battle.ZoneName</strong><br/>
+                                <strong>@battle.ZoneName @(battle.IsRetreatBattle ? "— RETREAT BATTLE" : "")</strong><br/>
                                 <span>@string.Join(" vs ", battle.Factions)</span>
                                 @if (battle.Factions.Contains(_gameDataApp.MyFactionName))
                                 {
@@ -329,7 +351,10 @@
                         @if (_activeBattleApp != null)
                         {
                             <div class="battle-configuration">
-                                <label><input type="checkbox" @bind="_activeBattleApp.IsAmphibious"/> AMPHIBIOUS LANDING</label>
+                                @if (!_activeBattleApp.IsRetreatBattle)
+                                {
+                                    <label><input type="checkbox" @bind="_activeBattleApp.IsAmphibious"/> AMPHIBIOUS LANDING</label>
+                                }
                                 @if (_activeBattleApp.IsAmphibious)
                                 {
                                     <select class="battle-color-select" @bind="_activeBattleApp.AttackerFaction">
@@ -541,7 +566,8 @@
             <div class="stance-zone-name">@(_activeBattleApp?.IsSectorSwap == true ? "SECTORS" : "SECTOR"): @_battleZoneName</div>
 
             @{ var myFaction = _gameDataApp?.MyFactionName ?? "UNKNOWN";
-                var currentStance = _factionStances.ContainsKey(myFaction) ? _factionStances[myFaction] : BattleStance.Defend; }
+                var currentStance = _factionStances.ContainsKey(myFaction) ? _factionStances[myFaction] : BattleStance.Defend;
+                var isRetreatingArmy = _activeBattleApp?.IsRetreatBattle == true && string.Equals(GetRetreatingFaction(_activeBattleApp), myFaction, StringComparison.OrdinalIgnoreCase); }
             <div style="margin-bottom: 15px; text-align: left; padding: 10px; border: 1px solid #444; background: #222;">
                 <strong style="color: @GetFactionColor(myFaction); font-size: 1.2rem;">@myFaction.ToUpper() - YOUR ORDERS</strong>
                 <div style="display: flex; gap: 5px; margin-top: 5px;">
@@ -553,10 +579,13 @@
                             style="flex:1; opacity: @(currentStance == BattleStance.Maneuver ? "1" : "0.4");"
                             @onclick="() => SetStance(myFaction, BattleStance.Maneuver)">MANEUVER
                     </button>
-                    <button class="btn-stance @(currentStance == BattleStance.Defend ? "btn-stance-defend" : "")"
-                            style="flex:1; opacity: @(currentStance == BattleStance.Defend ? "1" : "0.4");"
-                            @onclick="() => SetStance(myFaction, BattleStance.Defend)">DEFEND
-                    </button>
+                    @if (!isRetreatingArmy)
+                    {
+                        <button class="btn-stance @(currentStance == BattleStance.Defend ? "btn-stance-defend" : "")"
+                                style="flex:1; opacity: @(currentStance == BattleStance.Defend ? "1" : "0.4");"
+                                @onclick="() => SetStance(myFaction, BattleStance.Defend)">DEFEND
+                        </button>
+                    }
                 </div>
             </div>
             @if (!string.IsNullOrWhiteSpace(_actionErrorMessage))
@@ -1130,9 +1159,9 @@
     }
 
     private bool CanGiveUnitOrder(UnitAppDto unit) =>
-        (_stateApp?.Phase is TurnPhase.Moving or TurnPhase.PostCombatMoving) &&
-        !IsMyFactionMovementConfirmed &&
-        string.Equals(unit.FactionName, _gameDataApp?.MyFactionName, StringComparison.OrdinalIgnoreCase);
+        string.Equals(unit.FactionName, _gameDataApp?.MyFactionName, StringComparison.OrdinalIgnoreCase) &&
+        ((_stateApp?.Phase is TurnPhase.Moving or TurnPhase.PostCombatMoving && !IsMyFactionMovementConfirmed) ||
+         (_stateApp?.Phase == TurnPhase.RetreatMoving && _stateApp.PendingRetreats.Any(retreat => retreat.UnitId == unit.Id)));
 
     private bool IsUnitDugInForDisplay(UnitAppDto unit)
     {
@@ -1207,11 +1236,7 @@
         CloseUnitContextMenu();
         _selectedUnitForScale = unitApp;
 
-        if (_stateApp.Phase != TurnPhase.Moving && _stateApp.Phase != TurnPhase.PostCombatMoving)
-        {
-            return;
-        }
-        if (IsMyFactionMovementConfirmed)
+        if (!CanGiveUnitOrder(unitApp))
         {
             return;
         }
@@ -1322,9 +1347,11 @@
         {
             return;
         }
-        var originZoneName = _trialManeuvers.TryGetValue(unit.Id, out var existingPlan)
-            ? existingPlan.OriginZoneName
-            : await GetZoneNameAtAsync(_dragStartX, _dragStartY);
+        var originZoneName = _stateApp.Phase == TurnPhase.RetreatMoving
+            ? unit.CurrentZoneName
+            : _trialManeuvers.TryGetValue(unit.Id, out var existingPlan)
+                ? existingPlan.OriginZoneName
+                : await GetZoneNameAtAsync(_dragStartX, _dragStartY);
         var destinationZoneName = await GetZoneNameAtAsync(unit.X, unit.Y);
         if (string.IsNullOrWhiteSpace(originZoneName) || string.IsNullOrWhiteSpace(destinationZoneName))
         {
@@ -1342,6 +1369,36 @@
         }
         unit.X = snapped.X;
         unit.Y = snapped.Y;
+
+        if (_stateApp.Phase == TurnPhase.RetreatMoving)
+        {
+            var retreat = _stateApp.PendingRetreats.FirstOrDefault(candidate => candidate.UnitId == unit.Id);
+            if (retreat == null || !retreat.AllowedZoneNames.Contains(destinationZoneName, StringComparer.OrdinalIgnoreCase))
+            {
+                RestoreDraggedUnit(unit);
+                _movementErrorMessage = "Move this army to one of the listed retreat sectors.";
+                return;
+            }
+
+            var response = await Http.PostAsJsonAsync($"api/Campaign/{Id}/retreat/move", new MoveRetreatAppDto
+            {
+                UnitId = unit.Id,
+                DestinationZoneName = destinationZoneName,
+                TargetX = unit.X,
+                TargetY = unit.Y
+            });
+            if (response.IsSuccessStatusCode)
+            {
+                _movementErrorMessage = string.Empty;
+                await RefreshGameStateAsync();
+            }
+            else
+            {
+                RestoreDraggedUnit(unit);
+                _movementErrorMessage = await ReadErrorMessageAsync(response, "The retreat move could not be saved.");
+            }
+            return;
+        }
 
         var maneuver = new UnitManeuver
         {
@@ -1565,10 +1622,17 @@
         _minorPoints.Clear();
         _factionStances = _stateApp?.PendingStances.TryGetValue(GetBattleStanceKey(battle), out var savedStances) == true
             ? new Dictionary<string, BattleStance>(savedStances)
-            : battle.Factions.ToDictionary(faction => faction, _ => BattleStance.Defend);
+            : new Dictionary<string, BattleStance>();
 
         foreach (var faction in battle.Factions)
         {
+            if (!_factionStances.ContainsKey(faction))
+            {
+                _factionStances[faction] = battle.IsRetreatBattle &&
+                    string.Equals(faction, GetRetreatingFaction(battle), StringComparison.OrdinalIgnoreCase)
+                        ? BattleStance.Assault : BattleStance.Defend;
+            }
+
             _majorPoints[faction] = 0;
             _minorPoints[faction] = 0;
         }
@@ -1578,7 +1642,10 @@
     }
 
     private static string GetBattleStanceKey(ActiveBattleAppDto battle) =>
-        battle.IsSectorSwap ? battle.Id : battle.ZoneName;
+        battle.IsSectorSwap || battle.IsRetreatBattle ? battle.Id : battle.ZoneName;
+
+    private string GetRetreatingFaction(ActiveBattleAppDto battle) =>
+        _stateApp?.Units.FirstOrDefault(unit => battle.RetreatingUnitIds.Contains(unit.Id))?.FactionName ?? string.Empty;
 
     private void OpenBattleForStance(ActiveBattleAppDto battle)
     {
