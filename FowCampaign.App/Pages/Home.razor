@@ -8,6 +8,7 @@
 @layout HomeLayout
 
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PaperSheet @ref="_paper">
     <div class="war-room-layout">
@@ -250,6 +251,18 @@
 
     private async Task DeleteCampaign(int campaignId)
     {
+        if (_burningCampaigns.Contains(campaignId))
+        {
+            return;
+        }
+
+        var campaign = _campaigns?.FirstOrDefault(c => c.Id == campaignId);
+        if (campaign == null || !await JS.InvokeAsync<bool>("confirm",
+                $"Are you sure you want to delete the game \"{campaign.Name}\"? This cannot be undone."))
+        {
+            return;
+        }
+
         _burningCampaigns.Add(campaignId);
         StateHasChanged();
 
