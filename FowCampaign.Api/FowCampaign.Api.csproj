@@ -26,6 +26,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Content Include="RecoveryMaps/*.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
         <Content Include="..\.dockerignore">
             <Link>.dockerignore</Link>
         </Content>
