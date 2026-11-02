@@ -10,8 +10,15 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Microsoft.AspNetCore.HttpOverrides;
+using FowCampaign.Api.Modules.Storage;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOptions<MapStorageOptions>()
+    .Bind(builder.Configuration.GetSection("MapStorage"))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.Directory), "MapStorage:Directory must not be empty.")
+    .ValidateOnStart();
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -86,6 +93,9 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddSignalR();
 
 var app = builder.Build();
+
+MapRecovery.RestoreMissingMaps(app.Environment.ContentRootPath,
+    app.Services.GetRequiredService<IOptions<MapStorageOptions>>().Value.Directory, app.Logger);
 
 if (!app.Environment.IsDevelopment())
 {

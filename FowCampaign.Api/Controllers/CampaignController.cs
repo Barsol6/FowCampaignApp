@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using FowCampaign.Api.Modules.Storage;
 using TurnPhase = FowCampaign.Api.DTO.TurnPhase;
 using UnitManeuver = FowCampaign.Api.DTO.UnitManeuver;
 
@@ -21,6 +23,7 @@ public class CampaignController : ControllerBase
     private readonly FowCampaignContext _context;
 
     private readonly IHubContext<GameHub> _hubContext;
+    private readonly string _mapsDirectory;
 
     private readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
     {
@@ -28,10 +31,12 @@ public class CampaignController : ControllerBase
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public CampaignController(FowCampaignContext context, IHubContext<GameHub> hubContext)
+    public CampaignController(FowCampaignContext context, IHubContext<GameHub> hubContext,
+        IOptions<MapStorageOptions> mapStorage)
     {
         _context = context;
         _hubContext = hubContext;
+        _mapsDirectory = mapStorage.Value.Directory;
     }
 
     [HttpPost("create")]
@@ -86,7 +91,7 @@ public class CampaignController : ControllerBase
         }
 
         var fileName = $"{Guid.NewGuid()}{Path.GetExtension(request.MapImage.FileName)}";
-        var mapsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "maps");
+        var mapsFolder = _mapsDirectory;
         Directory.CreateDirectory(mapsFolder);
 
         var savePath = Path.Combine(mapsFolder, fileName);
@@ -183,7 +188,7 @@ public class CampaignController : ControllerBase
         {
             try
             {
-                var mapPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "maps", campaign.MapFileName);
+                var mapPath = Path.Combine(_mapsDirectory, campaign.MapFileName);
                 if (System.IO.File.Exists(mapPath))
                 {
                     var bytes = await System.IO.File.ReadAllBytesAsync(mapPath);
